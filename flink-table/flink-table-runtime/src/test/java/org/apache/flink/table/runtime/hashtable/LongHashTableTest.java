@@ -20,26 +20,25 @@ package org.apache.flink.table.runtime.hashtable;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.io.disk.iomanager.IOManager;
 import org.apache.flink.runtime.io.disk.iomanager.IOManagerAsync;
 import org.apache.flink.runtime.memory.MemoryAllocationException;
 import org.apache.flink.runtime.memory.MemoryManager;
 import org.apache.flink.runtime.memory.MemoryManagerBuilder;
 import org.apache.flink.runtime.operators.testutils.UnionIterator;
-import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.binary.BinaryRowData;
 import org.apache.flink.table.runtime.typeutils.BinaryRowDataSerializer;
+import org.apache.flink.table.runtime.util.ConstantsKeyValuePairsIterator;
 import org.apache.flink.table.runtime.util.RowIterator;
 import org.apache.flink.table.runtime.util.UniformBinaryRowGenerator;
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension;
+import org.apache.flink.testutils.junit.extensions.parameterized.Parameters;
 import org.apache.flink.util.MutableObjectIterator;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -48,12 +47,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.apache.flink.table.api.config.ExecutionConfigOptions.TABLE_EXEC_SPILL_COMPRESSION_BLOCK_SIZE;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Fail.fail;
 
 /** Test for {@link LongHashPartition}. */
-@RunWith(Parameterized.class)
-public class LongHashTableTest {
+@ExtendWith(ParameterizedTestExtension.class)
+class LongHashTableTest {
 
     private static final int PAGE_SIZE = 32 * 1024;
     private IOManager ioManager;
@@ -63,34 +63,31 @@ public class LongHashTableTest {
             MemoryManagerBuilder.newBuilder().setMemorySize(896 * PAGE_SIZE).build();
 
     private boolean useCompress;
-    private Configuration conf;
 
     public LongHashTableTest(boolean useCompress) {
         this.useCompress = useCompress;
     }
 
-    @Parameterized.Parameters(name = "useCompress-{0}")
-    public static List<Boolean> getVarSeg() {
+    @Parameters(name = "useCompress-{0}")
+    private static List<Boolean> getVarSeg() {
         return Arrays.asList(true, false);
     }
 
-    @Before
-    public void init() {
+    @BeforeEach
+    void init() {
         TypeInformation[] types = new TypeInformation[] {Types.INT, Types.INT};
         this.buildSideSerializer = new BinaryRowDataSerializer(types.length);
         this.probeSideSerializer = new BinaryRowDataSerializer(types.length);
         this.ioManager = new IOManagerAsync();
-
-        conf = new Configuration();
-        conf.setBoolean(ExecutionConfigOptions.TABLE_EXEC_SPILL_COMPRESSION_ENABLED, useCompress);
     }
 
     private class MyHashTable extends LongHybridHashTable {
 
         public MyHashTable(long memorySize) {
             super(
-                    conf,
                     LongHashTableTest.this,
+                    useCompress,
+                    (int) TABLE_EXEC_SPILL_COMPRESSION_BLOCK_SIZE.defaultValue().getBytes(),
                     buildSideSerializer,
                     probeSideSerializer,
                     memManager,
@@ -116,8 +113,8 @@ public class LongHashTableTest {
         }
     }
 
-    @Test
-    public void testInMemory() throws IOException {
+    @TestTemplate
+    void testInMemory() throws IOException {
         final int numKeys = 100000;
         final int buildValsPerKey = 3;
         final int probeValsPerKey = 10;
@@ -133,18 +130,18 @@ public class LongHashTableTest {
         final MyHashTable table = new MyHashTable(500 * PAGE_SIZE);
 
         int numRecordsInJoinResult = join(table, buildInput, probeInput);
-        Assert.assertEquals(
-                "Wrong number of records in join result.",
-                numKeys * buildValsPerKey * probeValsPerKey,
-                numRecordsInJoinResult);
+
+        assertThat(numRecordsInJoinResult)
+                .as("Wrong number of records in join result.")
+                .isEqualTo(numKeys * buildValsPerKey * probeValsPerKey);
 
         table.close();
 
         table.free();
     }
 
-    @Test
-    public void testSpillingHashJoinOneRecursion() throws IOException {
+    @TestTemplate
+    void testSpillingHashJoinOneRecursion() throws IOException {
         final int numKeys = 100000;
         final int buildValsPerKey = 3;
         final int probeValsPerKey = 10;
@@ -161,10 +158,9 @@ public class LongHashTableTest {
 
         int numRecordsInJoinResult = join(table, buildInput, probeInput);
 
-        Assert.assertEquals(
-                "Wrong number of records in join result.",
-                numKeys * buildValsPerKey * probeValsPerKey,
-                numRecordsInJoinResult);
+        assertThat(numRecordsInJoinResult)
+                .as("Wrong number of records in join result.")
+                .isEqualTo(numKeys * buildValsPerKey * probeValsPerKey);
 
         table.close();
 
@@ -174,8 +170,8 @@ public class LongHashTableTest {
     }
 
     /** Non partition in memory in level 0. */
-    @Test
-    public void testSpillingHashJoinOneRecursionPerformance() throws IOException {
+    @TestTemplate
+    void testSpillingHashJoinOneRecursionPerformance() throws IOException {
         final int numKeys = 1000000;
         final int buildValsPerKey = 3;
         final int probeValsPerKey = 10;
@@ -192,10 +188,9 @@ public class LongHashTableTest {
 
         int numRecordsInJoinResult = join(table, buildInput, probeInput);
 
-        Assert.assertEquals(
-                "Wrong number of records in join result.",
-                numKeys * buildValsPerKey * probeValsPerKey,
-                numRecordsInJoinResult);
+        assertThat(numRecordsInJoinResult)
+                .as("Wrong number of records in join result.")
+                .isEqualTo(numKeys * buildValsPerKey * probeValsPerKey);
 
         table.close();
 
@@ -204,8 +199,8 @@ public class LongHashTableTest {
         table.free();
     }
 
-    @Test
-    public void testSpillingHashJoinOneRecursionValidity() throws IOException {
+    @TestTemplate
+    void testSpillingHashJoinOneRecursionValidity() throws IOException {
         final int numKeys = 1000000;
         final int buildValsPerKey = 3;
         final int probeValsPerKey = 10;
@@ -243,15 +238,14 @@ public class LongHashTableTest {
 
         table.close();
 
-        Assert.assertEquals("Wrong number of keys", numKeys, map.size());
+        assertThat(map).as("Wrong number of keys").hasSize(numKeys);
         for (Map.Entry<Integer, Long> entry : map.entrySet()) {
             long val = entry.getValue();
             int key = entry.getKey();
 
-            Assert.assertEquals(
-                    "Wrong number of values in per-key cross product for key " + key,
-                    probeValsPerKey * buildValsPerKey,
-                    val);
+            assertThat(val)
+                    .as("Wrong number of values in per-key cross product for key " + key)
+                    .isEqualTo(probeValsPerKey * buildValsPerKey);
         }
 
         // ----------------------------------------------------------------------------------------
@@ -259,8 +253,8 @@ public class LongHashTableTest {
         table.free();
     }
 
-    @Test
-    public void testSpillingHashJoinWithMassiveCollisions() throws IOException {
+    @TestTemplate
+    void testSpillingHashJoinWithMassiveCollisions() throws IOException {
         // the following two values are known to have a hash-code collision on the initial level.
         // we use them to make sure one partition grows over-proportionally large
         final int repeatedValue1 = 40559;
@@ -277,11 +271,9 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> build1 =
                 new UniformBinaryRowGenerator(numKeys, buildValsPerKey, false);
         MutableObjectIterator<BinaryRowData> build2 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue1, 17, repeatedValueCountBuild);
+                new ConstantsKeyValuePairsIterator(repeatedValue1, 17, repeatedValueCountBuild);
         MutableObjectIterator<BinaryRowData> build3 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue2, 23, repeatedValueCountBuild);
+                new ConstantsKeyValuePairsIterator(repeatedValue2, 23, repeatedValueCountBuild);
         List<MutableObjectIterator<BinaryRowData>> builds = new ArrayList<>();
         builds.add(build1);
         builds.add(build2);
@@ -292,9 +284,9 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> probe1 =
                 new UniformBinaryRowGenerator(numKeys, probeValsPerKey, true);
         MutableObjectIterator<BinaryRowData> probe2 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(repeatedValue1, 17, 5);
+                new ConstantsKeyValuePairsIterator(repeatedValue1, 17, 5);
         MutableObjectIterator<BinaryRowData> probe3 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(repeatedValue2, 23, 5);
+                new ConstantsKeyValuePairsIterator(repeatedValue2, 23, 5);
         List<MutableObjectIterator<BinaryRowData>> probes = new ArrayList<>();
         probes.add(probe1);
         probes.add(probe2);
@@ -325,18 +317,18 @@ public class LongHashTableTest {
 
         table.close();
 
-        Assert.assertEquals("Wrong number of keys", numKeys, map.size());
+        assertThat(map).as("Wrong number of keys").hasSize(numKeys);
         for (Map.Entry<Integer, Long> entry : map.entrySet()) {
             long val = entry.getValue();
             int key = entry.getKey();
 
-            Assert.assertEquals(
-                    "Wrong number of values in per-key cross product for key " + key,
-                    (key == repeatedValue1 || key == repeatedValue2)
-                            ? (probeValsPerKey + repeatedValueCountProbe)
-                                    * (buildValsPerKey + repeatedValueCountBuild)
-                            : probeValsPerKey * buildValsPerKey,
-                    val);
+            assertThat(val)
+                    .as("Wrong number of values in per-key cross product for key " + key)
+                    .isEqualTo(
+                            (key == repeatedValue1 || key == repeatedValue2)
+                                    ? (probeValsPerKey + repeatedValueCountProbe)
+                                            * (buildValsPerKey + repeatedValueCountBuild)
+                                    : probeValsPerKey * buildValsPerKey);
         }
 
         // ----------------------------------------------------------------------------------------
@@ -344,8 +336,8 @@ public class LongHashTableTest {
         table.free();
     }
 
-    @Test
-    public void testSpillingHashJoinWithTwoRecursions() throws IOException {
+    @TestTemplate
+    void testSpillingHashJoinWithTwoRecursions() throws IOException {
         // the following two values are known to have a hash-code collision on the first recursion
         // level.
         // we use them to make sure one partition grows over-proportionally large
@@ -363,11 +355,9 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> build1 =
                 new UniformBinaryRowGenerator(numKeys, buildValsPerKey, false);
         MutableObjectIterator<BinaryRowData> build2 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue1, 17, repeatedValueCountBuild);
+                new ConstantsKeyValuePairsIterator(repeatedValue1, 17, repeatedValueCountBuild);
         MutableObjectIterator<BinaryRowData> build3 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue2, 23, repeatedValueCountBuild);
+                new ConstantsKeyValuePairsIterator(repeatedValue2, 23, repeatedValueCountBuild);
         List<MutableObjectIterator<BinaryRowData>> builds = new ArrayList<>();
         builds.add(build1);
         builds.add(build2);
@@ -378,9 +368,9 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> probe1 =
                 new UniformBinaryRowGenerator(numKeys, probeValsPerKey, true);
         MutableObjectIterator<BinaryRowData> probe2 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(repeatedValue1, 17, 5);
+                new ConstantsKeyValuePairsIterator(repeatedValue1, 17, 5);
         MutableObjectIterator<BinaryRowData> probe3 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(repeatedValue2, 23, 5);
+                new ConstantsKeyValuePairsIterator(repeatedValue2, 23, 5);
         List<MutableObjectIterator<BinaryRowData>> probes = new ArrayList<>();
         probes.add(probe1);
         probes.add(probe2);
@@ -411,18 +401,18 @@ public class LongHashTableTest {
 
         table.close();
 
-        Assert.assertEquals("Wrong number of keys", numKeys, map.size());
+        assertThat(map).as("Wrong number of keys").hasSize(numKeys);
         for (Map.Entry<Integer, Long> entry : map.entrySet()) {
             long val = entry.getValue();
             int key = entry.getKey();
 
-            Assert.assertEquals(
-                    "Wrong number of values in per-key cross product for key " + key,
-                    (key == repeatedValue1 || key == repeatedValue2)
-                            ? (probeValsPerKey + repeatedValueCountProbe)
-                                    * (buildValsPerKey + repeatedValueCountBuild)
-                            : probeValsPerKey * buildValsPerKey,
-                    val);
+            assertThat(val)
+                    .as("Wrong number of values in per-key cross product for key " + key)
+                    .isEqualTo(
+                            (key == repeatedValue1 || key == repeatedValue2)
+                                    ? (probeValsPerKey + repeatedValueCountProbe)
+                                            * (buildValsPerKey + repeatedValueCountBuild)
+                                    : probeValsPerKey * buildValsPerKey);
         }
 
         // ----------------------------------------------------------------------------------------
@@ -435,8 +425,8 @@ public class LongHashTableTest {
      * of repeated values (causing bucket collisions) are large enough to make sure that their target partition no longer
      * fits into memory by itself and needs to be repartitioned in the recursion again.
      */
-    @Test
-    public void testFailingHashJoinTooManyRecursions() throws IOException {
+    @TestTemplate
+    void testSpillingHashJoinWithTooManyRecursions() throws IOException {
         // the following two values are known to have a hash-code collision on the first recursion
         // level.
         // we use them to make sure one partition grows over-proportionally large
@@ -453,11 +443,9 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> build1 =
                 new UniformBinaryRowGenerator(numKeys, buildValsPerKey, false);
         MutableObjectIterator<BinaryRowData> build2 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue1, 17, repeatedValueCount);
+                new ConstantsKeyValuePairsIterator(repeatedValue1, 17, repeatedValueCount);
         MutableObjectIterator<BinaryRowData> build3 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue2, 23, repeatedValueCount);
+                new ConstantsKeyValuePairsIterator(repeatedValue2, 23, repeatedValueCount);
         List<MutableObjectIterator<BinaryRowData>> builds = new ArrayList<>();
         builds.add(build1);
         builds.add(build2);
@@ -468,11 +456,9 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> probe1 =
                 new UniformBinaryRowGenerator(numKeys, probeValsPerKey, true);
         MutableObjectIterator<BinaryRowData> probe2 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue1, 17, repeatedValueCount);
+                new ConstantsKeyValuePairsIterator(repeatedValue1, 17, repeatedValueCount);
         MutableObjectIterator<BinaryRowData> probe3 =
-                new BinaryHashTableTest.ConstantsKeyValuePairsIterator(
-                        repeatedValue2, 23, repeatedValueCount);
+                new ConstantsKeyValuePairsIterator(repeatedValue2, 23, repeatedValueCount);
         List<MutableObjectIterator<BinaryRowData>> probes = new ArrayList<>();
         probes.add(probe1);
         probes.add(probe2);
@@ -480,12 +466,61 @@ public class LongHashTableTest {
         MutableObjectIterator<BinaryRowData> probeInput = new UnionIterator<>(probes);
         final MyHashTable table = new MyHashTable(896 * PAGE_SIZE);
 
-        try {
-            join(table, buildInput, probeInput);
-            fail("Hash Join must have failed due to too many recursions.");
-        } catch (Exception ex) {
-            // expected
+        // create the map for validating the results
+        HashMap<Integer, Long> map = new HashMap<>(numKeys);
+
+        BinaryRowData buildRow = buildSideSerializer.createInstance();
+        while ((buildRow = buildInput.next(buildRow)) != null) {
+            table.putBuildRow(buildRow);
         }
+        table.endBuild();
+
+        BinaryRowData probeRow = probeSideSerializer.createInstance();
+        while ((probeRow = probeInput.next(probeRow)) != null) {
+            if (table.tryProbe(probeRow)) {
+                testJoin(table, map);
+            }
+        }
+
+        while (table.nextMatching()) {
+            testJoin(table, map);
+        }
+
+        // The partition which spill to disk more than 3 can't be joined
+        assertThat(map.size()).as("Wrong number of records in join result.").isLessThan(numKeys);
+
+        // Here exists two partition which spill to disk more than 3
+        assertThat(table.getPartitionsPendingForSMJ().size())
+                .as("Wrong number of spilled partition.")
+                .isEqualTo(2);
+
+        Map<Integer, Integer> spilledPartitionBuildSideKeys = new HashMap<>();
+        Map<Integer, Integer> spilledPartitionProbeSideKeys = new HashMap<>();
+        for (LongHashPartition p : table.getPartitionsPendingForSMJ()) {
+            RowIterator<BinaryRowData> buildIter = table.getSpilledPartitionBuildSideIter(p);
+            while (buildIter.advanceNext()) {
+                Integer key = buildIter.getRow().getInt(0);
+                spilledPartitionBuildSideKeys.put(
+                        key, spilledPartitionBuildSideKeys.getOrDefault(key, 0) + 1);
+            }
+
+            ProbeIterator probeIter = table.getSpilledPartitionProbeSideIter(p);
+            BinaryRowData rowData;
+            while ((rowData = probeIter.next()) != null) {
+                Integer key = rowData.getInt(0);
+                spilledPartitionProbeSideKeys.put(
+                        key, spilledPartitionProbeSideKeys.getOrDefault(key, 0) + 1);
+            }
+        }
+
+        // assert spilled partition contains key repeatedValue1 and repeatedValue2
+        Integer buildKeyCnt = repeatedValueCount + buildValsPerKey;
+        assertThat(spilledPartitionBuildSideKeys).containsEntry(repeatedValue1, buildKeyCnt);
+        assertThat(spilledPartitionBuildSideKeys).containsEntry(repeatedValue2, buildKeyCnt);
+
+        Integer probeKeyCnt = repeatedValueCount + probeValsPerKey;
+        assertThat(spilledPartitionProbeSideKeys).containsEntry(repeatedValue1, probeKeyCnt);
+        assertThat(spilledPartitionProbeSideKeys).containsEntry(repeatedValue2, probeKeyCnt);
 
         table.close();
 
@@ -494,8 +529,8 @@ public class LongHashTableTest {
         table.free();
     }
 
-    @Test
-    public void testSparseProbeSpilling() throws IOException, MemoryAllocationException {
+    @TestTemplate
+    void testSparseProbeSpilling() throws IOException, MemoryAllocationException {
         final int numBuildKeys = 1000000;
         final int numBuildVals = 1;
         final int numProbeKeys = 20;
@@ -514,18 +549,17 @@ public class LongHashTableTest {
                         buildInput,
                         new UniformBinaryRowGenerator(numProbeKeys, numProbeVals, true));
 
-        Assert.assertEquals(
-                "Wrong number of records in join result.",
-                expectedNumResults,
-                numRecordsInJoinResult);
+        assertThat(numRecordsInJoinResult)
+                .as("Wrong number of records in join result.")
+                .isEqualTo(expectedNumResults);
 
         table.close();
 
         table.free();
     }
 
-    @Test
-    public void validateSpillingDuringInsertion() throws IOException, MemoryAllocationException {
+    @TestTemplate
+    void validateSpillingDuringInsertion() throws IOException, MemoryAllocationException {
         final int numBuildKeys = 500000;
         final int numBuildVals = 1;
         final int numProbeKeys = 10;
@@ -544,18 +578,17 @@ public class LongHashTableTest {
                         buildInput,
                         new UniformBinaryRowGenerator(numProbeKeys, numProbeVals, true));
 
-        Assert.assertEquals(
-                "Wrong number of records in join result.",
-                expectedNumResults,
-                numRecordsInJoinResult);
+        assertThat(numRecordsInJoinResult)
+                .as("Wrong number of records in join result.")
+                .isEqualTo(expectedNumResults);
 
         table.close();
 
         table.free();
     }
 
-    @Test
-    public void testBucketsNotFulfillSegment() throws Exception {
+    @TestTemplate
+    void testBucketsNotFulfillSegment() throws Exception {
         final int numKeys = 10000;
         final int buildValsPerKey = 3;
         final int probeValsPerKey = 10;
@@ -574,10 +607,9 @@ public class LongHashTableTest {
 
         int numRecordsInJoinResult = join(table, buildInput, probeInput);
 
-        Assert.assertEquals(
-                "Wrong number of records in join result.",
-                numKeys * buildValsPerKey * probeValsPerKey,
-                numRecordsInJoinResult);
+        assertThat(numRecordsInJoinResult)
+                .as("Wrong number of records in join result.")
+                .isEqualTo(numKeys * buildValsPerKey * probeValsPerKey);
 
         table.close();
         table.free();
@@ -594,16 +626,18 @@ public class LongHashTableTest {
         if (buildSide.advanceNext()) {
             numBuildValues = 1;
             record = buildSide.getRow();
-            assertEquals(
-                    "Probe-side key was different than build-side key.", key, record.getInt(0));
+            assertThat(record.getInt(0))
+                    .as("Probe-side key was different than build-side key.")
+                    .isEqualTo(key);
         } else {
             fail("No build side values found for a probe key.");
         }
         while (buildSide.advanceNext()) {
             numBuildValues++;
             record = buildSide.getRow();
-            assertEquals(
-                    "Probe-side key was different than build-side key.", key, record.getInt(0));
+            assertThat(record.getInt(0))
+                    .as("Probe-side key was different than build-side key.")
+                    .isEqualTo(key);
         }
 
         Long contained = map.get(key);

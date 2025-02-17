@@ -19,27 +19,25 @@
 package org.apache.flink.test.checkpointing;
 
 import org.apache.flink.api.common.JobID;
-import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
-import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.core.execution.CheckpointingMode;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.OperatorIDPair;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.SavepointRestoreSettings;
-import org.apache.flink.runtime.minicluster.MiniCluster;
-import org.apache.flink.runtime.minicluster.MiniClusterConfiguration;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
-import org.apache.flink.streaming.api.CheckpointingMode;
+import org.apache.flink.runtime.testutils.MiniClusterResource;
+import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.streaming.api.functions.source.RichSourceFunction;
+import org.apache.flink.streaming.api.functions.sink.legacy.SinkFunction;
+import org.apache.flink.streaming.api.functions.source.legacy.RichSourceFunction;
+import org.apache.flink.streaming.util.RestartStrategyUtils;
 import org.apache.flink.testutils.junit.SharedObjects;
 import org.apache.flink.testutils.junit.SharedReference;
 
@@ -72,6 +70,14 @@ public class CheckpointRestoreWithUidHashITCase {
 
     @Rule public final SharedObjects sharedObjects = SharedObjects.create();
 
+    @Rule
+    public final MiniClusterResource miniClusterResource =
+            new MiniClusterResource(
+                    new MiniClusterResourceConfiguration.Builder()
+                            .setNumberTaskManagers(1)
+                            .setNumberSlotsPerTaskManager(1)
+                            .build());
+
     private SharedReference<CountDownLatch> startWaitingForCheckpointLatch;
 
     private SharedReference<List<Integer>> result;
@@ -86,49 +92,46 @@ public class CheckpointRestoreWithUidHashITCase {
     public void testRestoreFromSavepointBySetUidHash() throws Exception {
         final int maxNumber = 100;
 
-        try (MiniCluster miniCluster = new MiniCluster(createMiniClusterConfig())) {
-            miniCluster.start();
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        JobGraph firstJob =
+                createJobGraph(
+                        env,
+                        StatefulSourceBehavior.HOLD_AFTER_CHECKPOINT_ON_FIRST_RUN,
+                        maxNumber,
+                        "test-uid",
+                        null,
+                        null);
+        JobID jobId = miniClusterResource.getMiniCluster().submitJob(firstJob).get().getJobID();
+        waitForAllTaskRunning(miniClusterResource.getMiniCluster(), jobId, false);
 
-            StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-            JobGraph firstJob =
-                    createJobGraph(
-                            env,
-                            StatefulSourceBehavior.HOLD_AFTER_CHECKPOINT_ON_FIRST_RUN,
-                            maxNumber,
-                            "test-uid",
-                            null,
-                            null);
-            JobID jobId = miniCluster.submitJob(firstJob).get().getJobID();
-            waitForAllTaskRunning(miniCluster, jobId, false);
+        // The source would emit some records and start waiting for the checkpoint to happen.
+        // With this latch we ensures the savepoint happens in a fixed position and no following
+        // records are emitted after savepoint is triggered.
+        startWaitingForCheckpointLatch.get().await();
+        String savepointPath =
+                miniClusterResource
+                        .getMiniCluster()
+                        .triggerSavepoint(
+                                jobId,
+                                TMP_FOLDER.newFolder().getAbsolutePath(),
+                                true,
+                                SavepointFormatType.CANONICAL)
+                        .get();
 
-            // The source would emit some records and start waiting for the checkpoint to happen.
-            // With this latch we ensures the savepoint happens in a fixed position and no following
-            // records are emitted after savepoint is triggered.
-            startWaitingForCheckpointLatch.get().await();
-            String savepointPath =
-                    miniCluster
-                            .triggerSavepoint(
-                                    jobId,
-                                    TMP_FOLDER.newFolder().getAbsolutePath(),
-                                    true,
-                                    SavepointFormatType.CANONICAL)
-                            .get();
+        // Get the operator id
+        List<OperatorIDPair> operatorIds =
+                firstJob.getVerticesSortedTopologicallyFromSources().get(0).getOperatorIDs();
+        OperatorIDPair sourceOperatorIds = operatorIds.get(operatorIds.size() - 1);
 
-            // Get the operator id
-            List<OperatorIDPair> operatorIds =
-                    firstJob.getVerticesSortedTopologicallyFromSources().get(0).getOperatorIDs();
-            OperatorIDPair sourceOperatorIds = operatorIds.get(operatorIds.size() - 1);
-
-            JobGraph secondJob =
-                    createJobGraph(
-                            env,
-                            StatefulSourceBehavior.PROCESS_ONLY,
-                            maxNumber,
-                            null,
-                            sourceOperatorIds.getGeneratedOperatorID().toHexString(),
-                            savepointPath);
-            miniCluster.executeJobBlocking(secondJob);
-        }
+        JobGraph secondJob =
+                createJobGraph(
+                        env,
+                        StatefulSourceBehavior.PROCESS_ONLY,
+                        maxNumber,
+                        null,
+                        sourceOperatorIds.getGeneratedOperatorID().toHexString(),
+                        savepointPath);
+        miniClusterResource.getMiniCluster().executeJobBlocking(secondJob);
         assertThat(result.get(), contains(IntStream.range(0, maxNumber).boxed().toArray()));
     }
 
@@ -137,7 +140,7 @@ public class CheckpointRestoreWithUidHashITCase {
         final int maxNumber = 100;
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(2, 500));
+        RestartStrategyUtils.configureFixedDelayRestartStrategy(env, 2, 500L);
         env.enableCheckpointing(500, CheckpointingMode.EXACTLY_ONCE);
 
         JobGraph jobGraph =
@@ -149,21 +152,8 @@ public class CheckpointRestoreWithUidHashITCase {
                         new OperatorID().toHexString(),
                         null);
 
-        try (MiniCluster miniCluster = new MiniCluster(createMiniClusterConfig())) {
-            miniCluster.start();
-            miniCluster.executeJobBlocking(jobGraph);
-        }
+        miniClusterResource.getMiniCluster().executeJobBlocking(jobGraph);
         assertThat(result.get(), contains(IntStream.range(0, maxNumber).boxed().toArray()));
-    }
-
-    private MiniClusterConfiguration createMiniClusterConfig() {
-        final Configuration config = new Configuration();
-        config.setString(RestOptions.BIND_PORT, "18081-19000");
-        return new MiniClusterConfiguration.Builder()
-                .setNumTaskManagers(1)
-                .setNumSlotsPerTaskManager(1)
-                .setConfiguration(config)
-                .build();
     }
 
     private JobGraph createJobGraph(
@@ -254,7 +244,7 @@ public class CheckpointRestoreWithUidHashITCase {
             emitRecordsTill(maxNumber / 3, ctx);
 
             if (behavior.waitForCheckpointOnFirstRun
-                    && getRuntimeContext().getAttemptNumber() == 0) {
+                    && getRuntimeContext().getTaskInfo().getAttemptNumber() == 0) {
                 // Wait till one checkpoint is triggered and completed
                 isWaiting = true;
                 startWaitingForCheckpointLatch.get().countDown();

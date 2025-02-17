@@ -20,31 +20,59 @@ package org.apache.flink.table.utils;
 
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.config.TableConfigOptions;
 import org.apache.flink.table.catalog.Catalog;
 import org.apache.flink.table.catalog.CatalogManager;
+import org.apache.flink.table.catalog.CatalogStore;
+import org.apache.flink.table.catalog.CatalogStoreHolder;
 import org.apache.flink.table.catalog.GenericInMemoryCatalog;
+import org.apache.flink.table.catalog.GenericInMemoryCatalogStore;
 
 import javax.annotation.Nullable;
 
 /** Mock implementations of {@link CatalogManager} for testing purposes. */
 public final class CatalogManagerMocks {
 
-    public static final String DEFAULT_CATALOG = EnvironmentSettings.DEFAULT_BUILTIN_CATALOG;
+    public static final String DEFAULT_CATALOG =
+            TableConfigOptions.TABLE_CATALOG_NAME.defaultValue();
 
-    public static final String DEFAULT_DATABASE = EnvironmentSettings.DEFAULT_BUILTIN_DATABASE;
+    public static final String DEFAULT_DATABASE =
+            TableConfigOptions.TABLE_DATABASE_NAME.defaultValue();
 
     public static CatalogManager createEmptyCatalogManager() {
-        return createCatalogManager(null);
+        return createCatalogManager(null, null);
+    }
+
+    public static CatalogManager createCatalogManager(CatalogStore catalogStore) {
+        return createCatalogManager(
+                CatalogStoreHolder.newBuilder()
+                        .catalogStore(catalogStore)
+                        .classloader(CatalogManagerMocks.class.getClassLoader())
+                        .config(new Configuration())
+                        .build());
+    }
+
+    public static CatalogManager createCatalogManager(
+            @Nullable CatalogStoreHolder catalogStoreHolder) {
+        return createCatalogManager(null, catalogStoreHolder);
     }
 
     public static CatalogManager createCatalogManager(@Nullable Catalog catalog) {
+        return createCatalogManager(catalog, null);
+    }
+
+    public static CatalogManager createCatalogManager(
+            @Nullable Catalog catalog, @Nullable CatalogStoreHolder catalogStoreHolder) {
         final CatalogManager.Builder builder = preparedCatalogManager();
         if (catalog != null) {
             builder.defaultCatalog(DEFAULT_CATALOG, catalog);
         }
+        if (catalogStoreHolder != null) {
+            builder.catalogStoreHolder(catalogStoreHolder);
+        }
         final CatalogManager catalogManager = builder.build();
-        catalogManager.initSchemaResolver(true, ExpressionResolverMocks.dummyResolver());
+        catalogManager.initSchemaResolver(
+                true, ExpressionResolverMocks.dummyResolver(), new ParserMock());
         return catalogManager;
     }
 
@@ -53,6 +81,12 @@ public final class CatalogManagerMocks {
                 .classLoader(CatalogManagerMocks.class.getClassLoader())
                 .config(new Configuration())
                 .defaultCatalog(DEFAULT_CATALOG, createEmptyCatalog())
+                .catalogStoreHolder(
+                        CatalogStoreHolder.newBuilder()
+                                .classloader(CatalogManagerMocks.class.getClassLoader())
+                                .config(new Configuration())
+                                .catalogStore(new GenericInMemoryCatalogStore())
+                                .build())
                 .executionConfig(new ExecutionConfig());
     }
 

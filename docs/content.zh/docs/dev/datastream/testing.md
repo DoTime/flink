@@ -151,11 +151,7 @@ class IncrementFlatMapFunctionTest extends FlatSpec with MockFactory {
 * `TwoInputStreamOperatorTestHarness` (f适用于两个 `DataStream` 的 `ConnectedStreams` 算子)
 * `KeyedTwoInputStreamOperatorTestHarness` (适用于两个 `KeyedStream` 上的 `ConnectedStreams` 算子)
 
-要使用测试工具，还需要一组其他的依赖项（测试范围）。
-
-{{< artifact flink-test-utils withTestScope >}}
-{{< artifact flink-runtime withTestScope >}}
-{{< artifact flink-streaming-java withTestScope withTestClassifier >}}
+要使用测试工具，还需要一组其他的依赖项，请查阅[配置]({{< ref "docs/dev/configuration/testing" >}})小节了解更多细节。
 
 现在，可以使用测试工具将记录和 watermark 推送到用户自定义函数或自定义算子中，控制处理时间，最后对算子的输出（包括旁路输出）进行校验。
 
@@ -306,7 +302,6 @@ class StatefulFlatMapTest extends FlatSpec with Matchers with BeforeAndAfter {
 在 Flink 代码库里可以找到更多使用这些测试工具的示例，例如：
 
 * `org.apache.flink.streaming.runtime.operators.windowing.WindowOperatorTest` 是测试算子和用户自定义函数（取决于处理时间和事件时间）的一个很好的例子。
-* `org.apache.flink.streaming.api.functions.sink.filesystem.LocalStreamingFileSinkTest` 展示了如何使用 `AbstractStreamOperatorTestHarness` 测试自定义 sink。具体来说，它使用 `AbstractStreamOperatorTestHarness.snapshot` 和 `AbstractStreamOperatorTestHarness.initializeState` 来测试它与 Flink checkpoint 机制的交互。
 
 <span class="label label-info">注意</span> `AbstractStreamOperatorTestHarness` 及其派生类目前不属于公共 API，可以进行更改。
 

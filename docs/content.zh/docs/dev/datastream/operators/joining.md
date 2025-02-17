@@ -38,7 +38,7 @@ stream.join(otherStream)
     .where(<KeySelector>)
     .equalTo(<KeySelector>)
     .window(<WindowAssigner>)
-    .apply(<JoinFunction>)
+    .apply(<JoinFunction>);
 ```
 
 语义上有一些值得注意的地方：
@@ -59,17 +59,17 @@ stream.join(otherStream)
 ```java
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
+import java.time.Duration;
  
 ...
 
-DataStream<Integer> orangeStream = ...
-DataStream<Integer> greenStream = ...
+DataStream<Integer> orangeStream = ...;
+DataStream<Integer> greenStream = ...;
 
 orangeStream.join(greenStream)
     .where(<KeySelector>)
     .equalTo(<KeySelector>)
-    .window(TumblingEventTimeWindows.of(Time.milliseconds(2)))
+    .window(TumblingEventTimeWindows.of(Duration.ofMillis(2)))
     .apply (new JoinFunction<Integer, Integer, String> (){
         @Override
         public String join(Integer first, Integer second) {
@@ -82,7 +82,7 @@ orangeStream.join(greenStream)
 
 ```scala
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows
-import org.apache.flink.streaming.api.windowing.time.Time
+import java.time.Duration
 
 ...
 
@@ -92,7 +92,7 @@ val greenStream: DataStream[Integer] = ...
 orangeStream.join(greenStream)
     .where(elem => /* select key */)
     .equalTo(elem => /* select key */)
-    .window(TumblingEventTimeWindows.of(Time.milliseconds(2)))
+    .window(TumblingEventTimeWindows.of(Duration.ofMillis(2)))
     .apply { (e1, e2) => e1 + "," + e2 }
 ```
 
@@ -114,17 +114,17 @@ X 轴下方是每个滑动窗口中被 join 后传递给 `JoinFunction` 的元�
 ```java
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
+import java.time.Duration;
 
 ...
 
-DataStream<Integer> orangeStream = ...
-DataStream<Integer> greenStream = ...
+DataStream<Integer> orangeStream = ...;
+DataStream<Integer> greenStream = ...;
 
 orangeStream.join(greenStream)
     .where(<KeySelector>)
     .equalTo(<KeySelector>)
-    .window(SlidingEventTimeWindows.of(Time.milliseconds(2) /* size */, Time.milliseconds(1) /* slide */))
+    .window(SlidingEventTimeWindows.of(Duration.ofMillis(2) /* size */, Duration.ofMillis(1) /* slide */))
     .apply (new JoinFunction<Integer, Integer, String> (){
         @Override
         public String join(Integer first, Integer second) {
@@ -137,7 +137,7 @@ orangeStream.join(greenStream)
 
 ```scala
 import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows
-import org.apache.flink.streaming.api.windowing.time.Time
+import java.time.Duration
 
 ...
 
@@ -147,7 +147,7 @@ val greenStream: DataStream[Integer] = ...
 orangeStream.join(greenStream)
     .where(elem => /* select key */)
     .equalTo(elem => /* select key */)
-    .window(SlidingEventTimeWindows.of(Time.milliseconds(2) /* size */, Time.milliseconds(1) /* slide */))
+    .window(SlidingEventTimeWindows.of(Duration.ofMillis(2) /* size */, Duration.ofMillis(1) /* slide */))
     .apply { (e1, e2) => e1 + "," + e2 }
 ```
 {{< /tab >}}
@@ -167,17 +167,17 @@ orangeStream.join(greenStream)
 ```java
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
+import java.time.Duration;
  
 ...
 
-DataStream<Integer> orangeStream = ...
-DataStream<Integer> greenStream = ...
+DataStream<Integer> orangeStream = ...;
+DataStream<Integer> greenStream = ...;
 
 orangeStream.join(greenStream)
     .where(<KeySelector>)
     .equalTo(<KeySelector>)
-    .window(EventTimeSessionWindows.withGap(Time.milliseconds(1)))
+    .window(EventTimeSessionWindows.withGap(Duration.ofMillis(1)))
     .apply (new JoinFunction<Integer, Integer, String> (){
         @Override
         public String join(Integer first, Integer second) {
@@ -190,7 +190,7 @@ orangeStream.join(greenStream)
 
 ```scala
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows
-import org.apache.flink.streaming.api.windowing.time.Time
+import java.time.Duration
 
 ...
 
@@ -200,7 +200,7 @@ val greenStream: DataStream[Integer] = ...
 orangeStream.join(greenStream)
     .where(elem => /* select key */)
     .equalTo(elem => /* select key */)
-    .window(EventTimeSessionWindows.withGap(Time.milliseconds(1)))
+    .window(EventTimeSessionWindows.withGap(Duration.ofMillis(1)))
     .apply { (e1, e2) => e1 + "," + e2 }
 ```
 
@@ -240,18 +240,18 @@ Interval join 目前仅支持 event time。
 ```java
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.streaming.api.functions.co.ProcessJoinFunction;
-import org.apache.flink.streaming.api.windowing.time.Time;
+import java.time.Duration;
 
 ...
 
-DataStream<Integer> orangeStream = ...
-DataStream<Integer> greenStream = ...
+DataStream<Integer> orangeStream = ...;
+DataStream<Integer> greenStream = ...;
 
 orangeStream
     .keyBy(<KeySelector>)
     .intervalJoin(greenStream.keyBy(<KeySelector>))
-    .between(Time.milliseconds(-2), Time.milliseconds(1))
-    .process (new ProcessJoinFunction<Integer, Integer, String(){
+    .between(Duration.ofMillis(-2), Duration.ofMillis(1))
+    .process (new ProcessJoinFunction<Integer, Integer, String>(){
 
         @Override
         public void processElement(Integer left, Integer right, Context ctx, Collector<String> out) {
@@ -265,7 +265,7 @@ orangeStream
 
 ```scala
 import org.apache.flink.streaming.api.functions.co.ProcessJoinFunction
-import org.apache.flink.streaming.api.windowing.time.Time
+import java.time.Duration
 
 ...
 
@@ -275,7 +275,7 @@ val greenStream: DataStream[Integer] = ...
 orangeStream
     .keyBy(elem => /* select key */)
     .intervalJoin(greenStream.keyBy(elem => /* select key */))
-    .between(Time.milliseconds(-2), Time.milliseconds(1))
+    .between(Duration.ofMillis(-2), Duration.ofMillis(1))
     .process(new ProcessJoinFunction[Integer, Integer, String] {
         override def processElement(left: Integer, right: Integer, ctx: ProcessJoinFunction[Integer, Integer, String]#Context, out: Collector[String]): Unit = {
             out.collect(left + "," + right)

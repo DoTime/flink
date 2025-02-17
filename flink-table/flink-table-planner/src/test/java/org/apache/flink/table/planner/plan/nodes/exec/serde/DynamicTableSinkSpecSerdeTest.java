@@ -44,6 +44,7 @@ import org.apache.flink.table.planner.utils.PlannerMocks;
 import org.apache.flink.table.types.logical.BigIntType;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.RowType;
+import org.apache.flink.table.utils.CatalogManagerMocks;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
@@ -57,8 +58,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
 
-import static org.apache.flink.table.api.EnvironmentSettings.DEFAULT_BUILTIN_CATALOG;
-import static org.apache.flink.table.api.EnvironmentSettings.DEFAULT_BUILTIN_DATABASE;
 import static org.apache.flink.table.api.config.TableConfigOptions.PLAN_COMPILE_CATALOG_OBJECTS;
 import static org.apache.flink.table.api.config.TableConfigOptions.PLAN_RESTORE_CATALOG_OBJECTS;
 import static org.apache.flink.table.factories.FactoryUtil.CONNECTOR;
@@ -89,20 +88,20 @@ class DynamicTableSinkSpecSerdeTest {
                         Collections.emptyList(),
                         null);
         final CatalogTable catalogTable1 =
-                CatalogTable.of(
-                        Schema.newBuilder().fromResolvedSchema(resolvedSchema1).build(),
-                        null,
-                        Collections.emptyList(),
-                        options1);
+                CatalogTable.newBuilder()
+                        .schema(Schema.newBuilder().fromResolvedSchema(resolvedSchema1).build())
+                        .options(options1)
+                        .build();
 
         DynamicTableSinkSpec spec1 =
                 new DynamicTableSinkSpec(
                         ContextResolvedTable.temporary(
                                 ObjectIdentifier.of(
-                                        DEFAULT_BUILTIN_CATALOG,
-                                        DEFAULT_BUILTIN_DATABASE,
+                                        CatalogManagerMocks.DEFAULT_CATALOG,
+                                        CatalogManagerMocks.DEFAULT_DATABASE,
                                         "MyTable"),
                                 new ResolvedCatalogTable(catalogTable1, resolvedSchema1)),
+                        null,
                         null);
 
         Map<String, String> options2 = new HashMap<>();
@@ -119,18 +118,17 @@ class DynamicTableSinkSpecSerdeTest {
                         Collections.emptyList(),
                         null);
         final CatalogTable catalogTable2 =
-                CatalogTable.of(
-                        Schema.newBuilder().fromResolvedSchema(resolvedSchema2).build(),
-                        null,
-                        Collections.emptyList(),
-                        options2);
+                CatalogTable.newBuilder()
+                        .schema(Schema.newBuilder().fromResolvedSchema(resolvedSchema2).build())
+                        .options(options2)
+                        .build();
 
         DynamicTableSinkSpec spec2 =
                 new DynamicTableSinkSpec(
                         ContextResolvedTable.temporary(
                                 ObjectIdentifier.of(
-                                        DEFAULT_BUILTIN_CATALOG,
-                                        DEFAULT_BUILTIN_DATABASE,
+                                        CatalogManagerMocks.DEFAULT_CATALOG,
+                                        CatalogManagerMocks.DEFAULT_DATABASE,
                                         "MyTable"),
                                 new ResolvedCatalogTable(catalogTable2, resolvedSchema2)),
                         Arrays.asList(
@@ -140,7 +138,8 @@ class DynamicTableSinkSpecSerdeTest {
                                             {
                                                 put("p", "A");
                                             }
-                                        })));
+                                        })),
+                        new int[][] {{0}, {1}});
 
         Map<String, String> options3 = new HashMap<>();
         options3.put("connector", TestValuesTableFactory.IDENTIFIER);
@@ -155,24 +154,24 @@ class DynamicTableSinkSpecSerdeTest {
                         Collections.emptyList(),
                         null);
         final CatalogTable catalogTable3 =
-                CatalogTable.of(
-                        Schema.newBuilder().fromResolvedSchema(resolvedSchema3).build(),
-                        null,
-                        Collections.emptyList(),
-                        options3);
+                CatalogTable.newBuilder()
+                        .schema(Schema.newBuilder().fromResolvedSchema(resolvedSchema3).build())
+                        .options(options3)
+                        .build();
 
         DynamicTableSinkSpec spec3 =
                 new DynamicTableSinkSpec(
                         ContextResolvedTable.temporary(
                                 ObjectIdentifier.of(
-                                        DEFAULT_BUILTIN_CATALOG,
-                                        DEFAULT_BUILTIN_DATABASE,
+                                        CatalogManagerMocks.DEFAULT_CATALOG,
+                                        CatalogManagerMocks.DEFAULT_DATABASE,
                                         "MyTable"),
                                 new ResolvedCatalogTable(catalogTable3, resolvedSchema3)),
                         Collections.singletonList(
                                 new WritingMetadataSpec(
                                         Collections.singletonList("m"),
-                                        RowType.of(new BigIntType(), new IntType()))));
+                                        RowType.of(new BigIntType(), new IntType()))),
+                        null);
 
         return Stream.of(spec1, spec2, spec3);
     }
@@ -198,7 +197,8 @@ class DynamicTableSinkSpecSerdeTest {
                                 spec.getContextResolvedTable().getIdentifier(),
                                 catalogManager.getCatalog(catalogManager.getCurrentCatalog()).get(),
                                 spec.getContextResolvedTable().getResolvedTable()),
-                        spec.getSinkAbilities());
+                        spec.getSinkAbilities(),
+                        null);
 
         String actualJson = toJson(serdeCtx, spec);
         DynamicTableSinkSpec actual = toObject(serdeCtx, actualJson, DynamicTableSinkSpec.class);
@@ -214,7 +214,10 @@ class DynamicTableSinkSpecSerdeTest {
     void testDynamicTableSinkSpecSerdeWithEnrichmentOptions() throws Exception {
         // Test model
         ObjectIdentifier identifier =
-                ObjectIdentifier.of(DEFAULT_BUILTIN_CATALOG, DEFAULT_BUILTIN_DATABASE, "my_table");
+                ObjectIdentifier.of(
+                        CatalogManagerMocks.DEFAULT_CATALOG,
+                        CatalogManagerMocks.DEFAULT_DATABASE,
+                        "my_table");
 
         String formatPrefix = FactoryUtil.getFormatPrefix(FORMAT, TestFormatFactory.IDENTIFIER);
 
@@ -256,7 +259,8 @@ class DynamicTableSinkSpecSerdeTest {
                                 identifier,
                                 catalogManager.getCatalog(catalogManager.getCurrentCatalog()).get(),
                                 planResolvedCatalogTable),
-                        Collections.emptyList());
+                        Collections.emptyList(),
+                        null);
 
         String actualJson = toJson(serdeCtx, planSpec);
         DynamicTableSinkSpec actual = toObject(serdeCtx, actualJson, DynamicTableSinkSpec.class);

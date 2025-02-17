@@ -128,19 +128,6 @@ public interface TableResult {
     ResolvedSchema getResolvedSchema();
 
     /**
-     * Returns the schema of the result.
-     *
-     * @deprecated This method has been deprecated as part of FLIP-164. {@link TableSchema} has been
-     *     replaced by two more dedicated classes {@link Schema} and {@link ResolvedSchema}. Use
-     *     {@link Schema} for declaration in APIs. {@link ResolvedSchema} is offered by the
-     *     framework after resolution and validation.
-     */
-    @Deprecated
-    default TableSchema getTableSchema() {
-        return TableSchema.fromResolvedSchema(getResolvedSchema());
-    }
-
-    /**
      * Return the {@link ResultKind} which represents the result type.
      *
      * <p>For DDL operation and USE operation, the result kind is always {@link ResultKind#SUCCESS}.
@@ -178,7 +165,7 @@ public interface TableResult {
      *
      * <p>This method has slightly different behaviors under different checkpointing settings (to
      * enable checkpointing for a streaming job, set checkpointing properties through {@link
-     * TableConfig#getConfiguration()}).
+     * TableConfig}).
      *
      * <ul>
      *   <li>For batch jobs or streaming jobs without checkpointing, this method has neither
@@ -205,7 +192,7 @@ public interface TableResult {
      *
      * <p>This method has slightly different behaviors under different checkpointing settings (to
      * enable checkpointing for a streaming job, set checkpointing properties through {@link
-     * TableConfig#getConfiguration()}).
+     * TableConfig}).
      *
      * <ul>
      *   <li>For batch jobs or streaming jobs without checkpointing, this method has neither

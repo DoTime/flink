@@ -34,6 +34,8 @@ import org.apache.flink.table.functions.FunctionKind;
 import org.apache.flink.table.functions.ScalarFunction;
 import org.apache.flink.table.module.Module;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
+import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
+import org.apache.flink.table.planner.calcite.RexTableArgCall;
 import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction;
 import org.apache.flink.table.planner.functions.sql.FlinkSqlOperatorTable;
 import org.apache.flink.table.planner.functions.utils.UserDefinedFunctionUtils;
@@ -99,7 +101,9 @@ import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 @Execution(CONCURRENT)
 public class RexNodeJsonSerdeTest {
 
-    private static final FlinkTypeFactory FACTORY = FlinkTypeFactory.INSTANCE();
+    private static final FlinkTypeFactory FACTORY =
+            new FlinkTypeFactory(
+                    RexNodeJsonSerdeTest.class.getClassLoader(), FlinkTypeSystem.INSTANCE);
     private static final String FUNCTION_NAME = "MyFunc";
     private static final FunctionIdentifier FUNCTION_SYS_ID = FunctionIdentifier.of(FUNCTION_NAME);
     private static final FunctionIdentifier FUNCTION_CAT_ID =
@@ -202,8 +206,8 @@ public class RexNodeJsonSerdeTest {
                                 TableException.class,
                                 "Could not lookup system function '" + FUNCTION_NAME + "'."));
 
-        // Registered temporary function
-        registerTemporaryFunction(serdeContext);
+        // Registered temporary system function
+        registerTemporarySystemFunction(serdeContext);
         callable.call();
     }
 
@@ -681,7 +685,17 @@ public class RexNodeJsonSerdeTest {
                         FlinkSqlOperatorTable.HASH_CODE,
                         rexBuilder.makeInputRef(FACTORY.createSqlType(SqlTypeName.INTEGER), 1)),
                 rexBuilder.makePatternFieldRef(
-                        "test", FACTORY.createSqlType(SqlTypeName.INTEGER), 0));
+                        "test", FACTORY.createSqlType(SqlTypeName.INTEGER), 0),
+                new RexTableArgCall(
+                        FACTORY.createStructType(
+                                StructKind.PEEK_FIELDS_NO_EXPAND,
+                                Arrays.asList(
+                                        FACTORY.createSqlType(SqlTypeName.VARCHAR),
+                                        FACTORY.createSqlType(SqlTypeName.INTEGER)),
+                                Arrays.asList("f1", "f2")),
+                        0,
+                        new int[] {1},
+                        new int[] {0}));
     }
 
     // --------------------------------------------------------------------------------------------
@@ -753,6 +767,13 @@ public class RexNodeJsonSerdeTest {
                 .getFunctionCatalog()
                 .registerTemporaryCatalogFunction(
                         UNRESOLVED_FUNCTION_CAT_ID, NON_SER_FUNCTION_DEF_IMPL, false);
+    }
+
+    private static void registerTemporarySystemFunction(SerdeContext serdeContext) {
+        serdeContext
+                .getFlinkContext()
+                .getFunctionCatalog()
+                .registerTemporarySystemFunction(FUNCTION_NAME, NON_SER_FUNCTION_DEF_IMPL, false);
     }
 
     private JsonNode serializePermanentFunction(SerdeContext serdeContext) throws Exception {

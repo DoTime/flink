@@ -19,7 +19,6 @@
 package org.apache.flink.metrics.tests;
 
 import org.apache.flink.api.common.time.Deadline;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.clusterframework.types.ResourceID;
 import org.apache.flink.runtime.rest.RestClient;
@@ -146,13 +145,13 @@ public class MetricsAvailabilityITCase extends TestLogger {
                 headers.getUnresolvedMessageParameters();
         parameters.taskManagerIdParameter.resolve(taskManagerId);
         parameters.metricsFilterParameter.resolve(
-                Collections.singletonList("Status.Network.TotalMemorySegments"));
+                Collections.singletonList("Status.Shuffle.Netty.TotalMemorySegments"));
 
         fetchMetric(
                 () ->
                         restClient.sendRequest(
                                 HOST, PORT, headers, parameters, EmptyRequestBody.getInstance()),
-                getMetricNamePredicate("Status.Network.TotalMemorySegments"),
+                getMetricNamePredicate("Status.Shuffle.Netty.TotalMemorySegments"),
                 deadline);
     }
 
@@ -170,7 +169,7 @@ public class MetricsAvailabilityITCase extends TestLogger {
                                 throw new RuntimeException(e);
                             }
                         },
-                        Time.milliseconds(100),
+                        Duration.ofMillis(100),
                         deadline,
                         predicate,
                         new ScheduledExecutorServiceAdapter(scheduledExecutorService));

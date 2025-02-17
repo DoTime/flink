@@ -22,7 +22,6 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.client.program.MiniClusterClient;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.JobManagerOptions;
-import org.apache.flink.configuration.RestOptions;
 import org.apache.flink.configuration.RestartStrategyOptions;
 import org.apache.flink.runtime.execution.Environment;
 import org.apache.flink.runtime.io.network.api.reader.RecordReader;
@@ -48,6 +47,7 @@ import org.apache.flink.util.TestLogger;
 
 import org.junit.Test;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -55,6 +55,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.configuration.RestartStrategyOptions.RestartStrategyType.FIXED_DELAY;
+import static org.apache.flink.runtime.util.JobVertexConnectionUtils.connectNewDataSetAsInput;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;
@@ -89,7 +91,7 @@ public class PipelinedRegionSchedulingITCase extends TestLogger {
     @Test(timeout = 120000)
     public void testRecoverFromPartitionException() throws Exception {
         final Configuration configuration = new Configuration();
-        configuration.setString(RestartStrategyOptions.RESTART_STRATEGY, "fixed-delay");
+        configuration.set(RestartStrategyOptions.RESTART_STRATEGY, FIXED_DELAY.getMainValue());
         configuration.set(RestartStrategyOptions.RESTART_STRATEGY_FIXED_DELAY_ATTEMPTS, 1);
 
         OneTimeFailingReceiverWithPartitionException.hasFailed.set(false);
@@ -105,11 +107,12 @@ public class PipelinedRegionSchedulingITCase extends TestLogger {
 
     private JobResult executeSchedulingTest(
             JobGraph jobGraph, int numSlots, Configuration configuration) throws Exception {
-        configuration.setString(RestOptions.BIND_PORT, "0");
-        configuration.setLong(JobManagerOptions.SLOT_REQUEST_TIMEOUT, 5000L);
+        configuration.set(JobManagerOptions.SLOT_REQUEST_TIMEOUT, Duration.ofMillis(30000L));
+        configuration.set(JobManagerOptions.SCHEDULER, JobManagerOptions.SchedulerType.Default);
 
         final MiniClusterConfiguration miniClusterConfiguration =
                 new MiniClusterConfiguration.Builder()
+                        .withRandomPorts()
                         .setConfiguration(configuration)
                         .setNumTaskManagers(1)
                         .setNumSlotsPerTaskManager(numSlots)
@@ -151,10 +154,10 @@ public class PipelinedRegionSchedulingITCase extends TestLogger {
         sink.setParallelism(parallelism);
         sink.setSlotSharingGroup(group1);
 
-        sink.connectNewDataSetAsInput(
-                source1, DistributionPattern.POINTWISE, ResultPartitionType.PIPELINED);
-        sink.connectNewDataSetAsInput(
-                source2, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
+        connectNewDataSetAsInput(
+                sink, source1, DistributionPattern.POINTWISE, ResultPartitionType.PIPELINED);
+        connectNewDataSetAsInput(
+                sink, source2, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
 
         return JobGraphTestUtils.batchJobGraph(source1, source2, sink);
     }
@@ -178,10 +181,10 @@ public class PipelinedRegionSchedulingITCase extends TestLogger {
         sink.setParallelism(parallelism);
         sink.setSlotSharingGroup(group3);
 
-        map.connectNewDataSetAsInput(
-                source, DistributionPattern.POINTWISE, ResultPartitionType.BLOCKING);
-        sink.connectNewDataSetAsInput(
-                map, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
+        connectNewDataSetAsInput(
+                map, source, DistributionPattern.POINTWISE, ResultPartitionType.BLOCKING);
+        connectNewDataSetAsInput(
+                sink, map, DistributionPattern.ALL_TO_ALL, ResultPartitionType.BLOCKING);
 
         return JobGraphTestUtils.batchJobGraph(source, map, sink);
     }

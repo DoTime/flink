@@ -56,6 +56,7 @@ public class FunctionDefinitionConvertRule implements CallExpressionConvertRule 
 
         switch (definition.getKind()) {
             case SCALAR:
+            case ASYNC_SCALAR:
             case TABLE:
                 final List<RexNode> args =
                         call.getChildren().stream()
@@ -66,6 +67,7 @@ public class FunctionDefinitionConvertRule implements CallExpressionConvertRule 
                         BridgingSqlFunction.of(
                                 context.getDataTypeFactory(),
                                 context.getTypeFactory(),
+                                context.getRexFactory(),
                                 SqlKind.OTHER_FUNCTION,
                                 ContextResolvedFunction.fromCallExpression(call),
                                 typeInference);

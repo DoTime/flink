@@ -25,8 +25,7 @@ under the License.
 	<parent>
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-formats</artifactId>
-		<version>1.16-SNAPSHOT</version>
-		<relativePath>..</relativePath>
+		<version>2.1-SNAPSHOT</version>
 	</parent>
 
 	<artifactId>flink-sql-avro-confluent-registry</artifactId>
@@ -34,11 +33,23 @@ under the License.
 
 	<packaging>jar</packaging>
 
+	<properties>
+		<japicmp.skip>true</japicmp.skip>
+	</properties>
+
+	<repositories>
+		<repository>
+			<id>confluent</id>
+			<url>https://packages.confluent.io/maven/</url>
+		</repository>
+	</repositories>
+
 	<dependencies>
 		<dependency>
 			<groupId>org.apache.flink</groupId>
 			<artifactId>flink-avro-confluent-registry</artifactId>
 			<version>${project.version}</version>
+			<optional>${flink.markBundledAsOptional}</optional>
 		</dependency>
 	</dependencies>
 
@@ -57,21 +68,11 @@ under the License.
 						<configuration>
 							<artifactSet>
 								<includes>
-									<include>io.confluent:*</include>
-									<!--we include only kafka-clients which is used in
-									schema-registry-client (e.g. configuration classes). -->
-									<include>org.apache.kafka:kafka-clients</include>
-									<include>org.apache.flink:flink-avro</include>
-									<include>org.apache.flink:flink-avro-confluent-registry</include>
-									<include>org.apache.avro:avro</include>
-									<include>com.fasterxml.jackson.core:*</include>
-									<include>jakarta.ws.rs:jakarta.ws.rs-api</include>
-									<include>jakarta.annotation:jakarta.annotation-api</include>
-									<include>org.glassfish.jersey.core:jersey-common</include>
-									<include>org.glassfish.hk2.external:jakarta.inject</include>
-									<include>org.glassfish.hk2:osgi-resource-locator</include>
-									<include>org.apache.commons:commons-compress</include>
+									<include>*:*</include>
 								</includes>
+								<excludes>
+									<exclude>com.google.code.findbugs:jsr305</exclude>
+								</excludes>
 							</artifactSet>
 							<relocations combine.children="append">
 								<relocation>
@@ -98,13 +99,6 @@ under the License.
 								</relocation>
 							</relocations>
 							<filters>
-								<filter>
-									<artifact>org.glassfish.jersey.core:jersey-common</artifact>
-									<excludes>
-										<!-- exclude Java 9+ specific classes as otherwise the shade-plugin crashes -->
-										<exclude>META-INF/versions/**</exclude>
-									</excludes>
-								</filter>
 								<filter>
 									<artifact>org.apache.kafka:*</artifact>
 									<excludes>

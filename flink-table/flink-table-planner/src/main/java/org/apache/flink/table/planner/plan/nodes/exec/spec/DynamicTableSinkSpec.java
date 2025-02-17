@@ -47,18 +47,23 @@ public class DynamicTableSinkSpec extends DynamicTableSpecBase {
     public static final String FIELD_NAME_CATALOG_TABLE = "table";
     public static final String FIELD_NAME_SINK_ABILITIES = "abilities";
 
+    public static final String FIELD_NAME_TARGET_COLUMNS = "targetColumns";
+
     private final ContextResolvedTable contextResolvedTable;
     private final @Nullable List<SinkAbilitySpec> sinkAbilities;
+
+    private final @Nullable int[][] targetColumns;
 
     private DynamicTableSink tableSink;
 
     @JsonCreator
     public DynamicTableSinkSpec(
             @JsonProperty(FIELD_NAME_CATALOG_TABLE) ContextResolvedTable contextResolvedTable,
-            @Nullable @JsonProperty(FIELD_NAME_SINK_ABILITIES)
-                    List<SinkAbilitySpec> sinkAbilities) {
+            @Nullable @JsonProperty(FIELD_NAME_SINK_ABILITIES) List<SinkAbilitySpec> sinkAbilities,
+            @Nullable @JsonProperty(FIELD_NAME_TARGET_COLUMNS) int[][] targetColumns) {
         this.contextResolvedTable = contextResolvedTable;
         this.sinkAbilities = sinkAbilities;
+        this.targetColumns = targetColumns;
     }
 
     @JsonGetter(FIELD_NAME_CATALOG_TABLE)
@@ -73,28 +78,32 @@ public class DynamicTableSinkSpec extends DynamicTableSpecBase {
         return sinkAbilities;
     }
 
-    public DynamicTableSink getTableSink(FlinkContext flinkContext) {
+    public DynamicTableSink getTableSink(FlinkContext context) {
         if (tableSink == null) {
             final DynamicTableSinkFactory factory =
-                    flinkContext
-                            .getModuleManager()
-                            .getFactory(Module::getTableSinkFactory)
-                            .orElse(null);
+                    context.getModuleManager().getFactory(Module::getTableSinkFactory).orElse(null);
 
             tableSink =
                     FactoryUtil.createDynamicTableSink(
                             factory,
                             contextResolvedTable.getIdentifier(),
                             contextResolvedTable.getResolvedTable(),
-                            loadOptionsFromCatalogTable(contextResolvedTable, flinkContext),
-                            flinkContext.getTableConfig().getConfiguration(),
-                            flinkContext.getClassLoader(),
+                            loadOptionsFromCatalogTable(contextResolvedTable, context),
+                            context.getTableConfig(),
+                            context.getClassLoader(),
                             contextResolvedTable.isTemporary());
             if (sinkAbilities != null) {
                 sinkAbilities.forEach(spec -> spec.apply(tableSink));
             }
         }
         return tableSink;
+    }
+
+    @JsonGetter(FIELD_NAME_TARGET_COLUMNS)
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Nullable
+    public int[][] getTargetColumns() {
+        return targetColumns;
     }
 
     public void setTableSink(DynamicTableSink tableSink) {
@@ -112,12 +121,13 @@ public class DynamicTableSinkSpec extends DynamicTableSpecBase {
         DynamicTableSinkSpec that = (DynamicTableSinkSpec) o;
         return Objects.equals(contextResolvedTable, that.contextResolvedTable)
                 && Objects.equals(sinkAbilities, that.sinkAbilities)
-                && Objects.equals(tableSink, that.tableSink);
+                && Objects.equals(tableSink, that.tableSink)
+                && Objects.equals(targetColumns, that.targetColumns);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(contextResolvedTable, sinkAbilities, tableSink);
+        return Objects.hash(contextResolvedTable, sinkAbilities, targetColumns, tableSink);
     }
 
     @Override
@@ -127,6 +137,8 @@ public class DynamicTableSinkSpec extends DynamicTableSpecBase {
                 + contextResolvedTable
                 + ", sinkAbilities="
                 + sinkAbilities
+                + ", targetColumns="
+                + targetColumns
                 + ", tableSink="
                 + tableSink
                 + '}';

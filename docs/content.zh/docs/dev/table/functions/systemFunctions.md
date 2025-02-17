@@ -68,26 +68,22 @@ Flink Table API & SQL 为用户提供了一组内置的数据转换函数。本�
 
 {{< sql_functions_zh "collection" >}}
 
-### JSON Functions
+### JSON 函数
 
-JSON functions make use of JSON path expressions as described in ISO/IEC TR 19075-6 of the SQL
-standard. Their syntax is inspired by and adopts many features of ECMAScript, but is neither a
-subset nor superset thereof.
+JSON 函数使用符合 ISO/IEC TR 19075-6 SQL标准的 JSON 路径表达式。 它们的语法受到 ECMAScript 的启发，并
+采用了 ECMAScript 的许多功能，但不是其子集或超集。
 
-Path expressions come in two flavors, lax and strict. When omitted, it defaults to the strict mode.
-Strict mode is intended to examine data from a schema perspective and will throw errors whenever
-data does not adhere to the path expression. However, functions like `JSON_VALUE` allow defining
-fallback behavior if an error is encountered. Lax mode, on the other hand, is more forgiving and
-converts errors to empty sequences.
+路径表达式有宽容模式和严格模式两种模式。 当不指定时，默认使用严格模式。
+严格模式旨在从 Schema 的角度检查数据，并且只要数据不符合路径表达式就会抛出错误。 但是像`JSON_VALUE`的函数
+允许定义遇到错误时的后备行为。 另一方面，宽容模式更加宽容，并将错误转换为空序列。
 
-The special character `$` denotes the root node in a JSON path. Paths can access properties (`$.a`),
-array elements (`$.a[0].b`), or branch over all elements in an array (`$.a[*].b`).
+特殊字符`$`表示 JSON 路径中的根节点。 路径可以访问属性（`$.a`）， 数组元素 (`$.a[0].b`)，或遍历数组中的
+所有元素 (`$.a[*].b`)。
 
-Known Limitations:
-* Not all features of Lax mode are currently supported correctly. This is an upstream bug
-  (CALCITE-4717). Non-standard behavior is not guaranteed.
+已知限制：
+* 目前，并非宽容模式的所有功能都被正确支持。 这是一个上游的错误（CALCITE-4717）。无法保证行为符合标准。
 
-{{< sql_functions "json" >}}
+{{< sql_functions_zh "json" >}}
 
 ### 值构建函数
 
@@ -122,38 +118,44 @@ Known Limitations:
 下表列出了时间间隔单位和时间点单位标识符。
 
 对于 Table API，请使用 `_` 代替空格（例如 `DAY_TO_HOUR`）。
+Plural works for SQL only.
 
-| 时间间隔单位                | 时间点单位                        |
-| :------------------------ | :------------------------------ |
-| `MILLENIUM` _（仅适用SQL）_ |                                 |
-| `CENTURY` _（仅适用SQL）_   |                                 |
-| `YEAR`                    | `YEAR`                          |
-| `YEAR TO MONTH`           |                                 |
-| `QUARTER`                 | `QUARTER`                       |
-| `MONTH`                   | `MONTH`                         |
-| `WEEK`                    | `WEEK`                          |
-| `DAY`                     | `DAY`                           |
-| `DAY TO HOUR`             |                                 |
-| `DAY TO MINUTE`           |                                 |
-| `DAY TO SECOND`           |                                 |
-| `HOUR`                    | `HOUR`                          |
-| `HOUR TO MINUTE`          |                                 |
-| `HOUR TO SECOND`          |                                 |
-| `MINUTE`                  | `MINUTE`                        |
-| `MINUTE TO SECOND`        |                                 |
-| `SECOND`                  | `SECOND`                        |
-|                           | `MILLISECOND`                   |
-|                           | `MICROSECOND`                   |
-| `DOY` _（仅适用SQL）_       |                                 |
-| `DOW` _（仅适用SQL）_       |                                 |
-|                           | `SQL_TSI_YEAR` _（仅适用SQL）_    |
-|                           | `SQL_TSI_QUARTER` _（仅适用SQL）_ |
-|                           | `SQL_TSI_MONTH` _（仅适用SQL）_   |
-|                           | `SQL_TSI_WEEK` _（仅适用SQL）_    |
-|                           | `SQL_TSI_DAY` _（仅适用SQL）_     |
-|                           | `SQL_TSI_HOUR` _（仅适用SQL）_    |
-|                           | `SQL_TSI_MINUTE` _（仅适用SQL）_  |
-|                           | `SQL_TSI_SECOND ` _（仅适用SQL）_ |
+| 时间间隔单位                   | 时间点单位                        |
+|:-------------------------|:-----------------------------|
+| `MILLENNIUM`             |                              |
+| `CENTURY`                |                              |
+| `DECADE`                 |                              |
+| `YEAR(S)`                | `YEAR`                       |
+| `YEAR(S) TO MONTH(S)`    |                              |
+| `QUARTER(S)`             | `QUARTER`                    |
+| `MONTH(S)`               | `MONTH`                      |
+| `WEEK(S)`                | `WEEK`                       |
+| `DAY(S)`                 | `DAY`                        |
+| `DAY(S) TO HOUR(S)`      |                              |
+| `DAY(S) TO MINUTE(S)`    |                              |
+| `DAY(S) TO SECOND(S)`    |                              |
+| `HOUR(S)`                | `HOUR`                       |
+| `HOUR(S) TO MINUTE(S)`   |                              |
+| `HOUR(S) TO SECOND(S)`   |                              |
+| `MINUTE(S)`              | `MINUTE`                     |
+| `MINUTE(S) TO SECOND(S)` |                              |
+| `SECOND(S)`              | `SECOND`                     |
+| `MILLISECOND`            | `MILLISECOND`                |
+| `MICROSECOND`            | `MICROSECOND`                |
+| `NANOSECOND`             |                              |
+| `EPOCH`                  |                              |
+| `DOY` _（仅适用SQL）_         |                              |
+| `DOW` _（仅适用SQL）_         |                              |
+| `ISODOW` _（仅适用SQL）_      |                              |
+| `ISOYEAR` _（仅适用SQL）_     |                              |
+|                          | `SQL_TSI_YEAR` _（仅适用SQL）_    |
+|                          | `SQL_TSI_QUARTER` _（仅适用SQL）_ |
+|                          | `SQL_TSI_MONTH` _（仅适用SQL）_   |
+|                          | `SQL_TSI_WEEK` _（仅适用SQL）_    |
+|                          | `SQL_TSI_DAY` _（仅适用SQL）_     |
+|                          | `SQL_TSI_HOUR` _（仅适用SQL）_    |
+|                          | `SQL_TSI_MINUTE` _（仅适用SQL）_  |
+|                          | `SQL_TSI_SECOND ` _（仅适用SQL）_ |
 
 {{< top >}}
 
@@ -170,6 +172,7 @@ Known Limitations:
 | :----------------------- | :--------------------------- |
 | withColumns(...)         | 选择指定的列                   |
 | withoutColumns(...)      | 选择除指定列以外的列            |
+| withAllColumns()    | select all columns (like `SELECT *` in SQL) |
 
 详细语法如下：
 
@@ -177,6 +180,7 @@ Known Limitations:
 列函数:
     withColumns(columnExprs)
     withoutColumns(columnExprs)
+    withAllColumns()
 
 多列表达式:
     columnExpr [, columnExpr]*
@@ -191,13 +195,13 @@ Known Limitations:
 
 | 接口 | 用法举例 | 描述 |
 |-|-|-|
-| withColumns(*)| select("withColumns(*)")  = select("a, b, c, d, e") | 全部列 |
-| withColumns(m to n) | select("withColumns(2 to 4)") = select("b, c, d") | 第 m 到第 n 列 |
-|  withColumns(m, n, k)  | select("withColumns(1, 3, e)") = select("a, c, e") | 第 m、n、k 列 |
-|  withColumns(m, n to k)  | select("withColumns(1, 3 to 5)") = select("a, c, d ,e") |  以上两种用法的混合 |
-|  withoutColumns(m to n) | select("withoutColumns(2 to 4)") = select("a, e") |  不选从第 m 到第 n 列 |
-|  withoutColumns(m, n, k) | select("withoutColumns(1, 3, 5)") = select("b, d") |  不选第 m、n、k 列 |
-|  withoutColumns(m, n to k) | select("withoutColumns(1, 3 to 5)") = select("b") |  以上两种用法的混合 |
+| withColumns($(*)) | select(withColumns($("*")))  = select($("a"), $("b"), $("c"), $("d"), $("e")) | 全部列 |
+| withColumns(m to n) | select(withColumns(range(2, 4))) = select($("b"), $("c"), $("d")) | 第 m 到第 n 列 |
+| withColumns(m, n, k)  | select(withColumns(lit(1), lit(3), $("e"))) = select($("a"), $("c"), $("e")) | 第 m、n、k 列 |
+| withColumns(m, n to k)  | select(withColumns(lit(1), range(3, 5))) = select($("a"), $("c"), $("d"), $("e")) |  以上两种用法的混合 |
+| withoutColumns(m to n) | select(withoutColumns(range(2, 4))) = select($("a"), $("e")) |  不选从第 m 到第 n 列 |
+| withoutColumns(m, n, k) | select(withoutColumns(lit(1), lit(3), lit(5))) = select($("b"), $("d")) |  不选第 m、n、k 列 |
+| withoutColumns(m, n to k) | select(withoutColumns(lit(1), range(3, 5))) = select($("b")) |  以上两种用法的混合 |
 
 列函数可用于所有需要列字段的地方，例如 `select、groupBy、orderBy、UDFs` 等函数，例如：
 
@@ -205,22 +209,22 @@ Known Limitations:
 {{< tab "Java" >}}
 ```java
 table
-   .groupBy("withColumns(1 to 3)")
-   .select("withColumns(a to b), myUDAgg(myUDF(withColumns(5 to 20)))")
+    .groupBy(withColumns(range(1, 3)))
+    .select(withColumns(range("a", "b")), myUDAgg(myUDF(withColumns(range(5, 20)))));
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
 table
-   .groupBy(withColumns(1 to 3))
-   .select(withColumns('a to 'b), myUDAgg(myUDF(withColumns(5 to 20))))
+    .groupBy(withColumns(range(1, 3)))
+    .select(withColumns('a to 'b), myUDAgg(myUDF(withColumns(5 to 20))))
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-table \
-    .group_by("withColumns(1 to 3)") \
-    .select("withColumns(a to b), myUDAgg(myUDF(withColumns(5 to 20)))")
+table
+    .group_by(with_columns(range_(1, 3)))
+    .select(with_columns(range_('a', 'b')), myUDAgg(myUDF(with_columns(range_(5, 20)))))
 ```
 {{< /tab >}}
 {{< /tabs >}}

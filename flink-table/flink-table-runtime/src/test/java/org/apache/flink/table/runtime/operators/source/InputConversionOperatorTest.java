@@ -29,18 +29,18 @@ import org.apache.flink.types.Row;
 import org.apache.flink.types.RowKind;
 import org.apache.flink.util.FlinkRuntimeException;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nullable;
 
-import static org.apache.flink.core.testutils.FlinkMatchers.containsMessage;
-import static org.junit.Assert.assertThat;
+import static org.apache.flink.core.testutils.FlinkAssertions.anyCauseMatches;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link InputConversionOperator}. */
-public class InputConversionOperatorTest {
+class InputConversionOperatorTest {
 
     @Test
-    public void testInvalidRecords() throws Exception {
+    void testInvalidRecords() {
         final InputConversionOperator<Row> operator =
                 new InputConversionOperator<>(
                         createConverter(DataTypes.ROW(DataTypes.FIELD("f", DataTypes.INT()))),
@@ -50,26 +50,29 @@ public class InputConversionOperatorTest {
                         true);
 
         // invalid record due to missing field
-        try {
-            operator.processElement(new StreamRecord<>(Row.ofKind(RowKind.INSERT)));
-        } catch (FlinkRuntimeException e) {
-            assertThat(
-                    e,
-                    containsMessage(
-                            "Error during input conversion from external DataStream "
-                                    + "API to internal Table API data structures"));
-        }
+        assertThatThrownBy(
+                        () ->
+                                operator.processElement(
+                                        new StreamRecord<>(Row.ofKind(RowKind.INSERT))))
+                .satisfies(
+                        anyCauseMatches(
+                                FlinkRuntimeException.class,
+                                "Error during input conversion from external DataStream "
+                                        + "API to internal Table API data structures"));
 
         // invalid row kind
-        try {
-            operator.processElement(new StreamRecord<>(Row.ofKind(RowKind.DELETE, 12)));
-        } catch (FlinkRuntimeException e) {
-            assertThat(e, containsMessage("Conversion expects insert-only records"));
-        }
+        assertThatThrownBy(
+                        () ->
+                                operator.processElement(
+                                        new StreamRecord<>(Row.ofKind(RowKind.DELETE, 12))))
+                .satisfies(
+                        anyCauseMatches(
+                                FlinkRuntimeException.class,
+                                "Conversion expects insert-only records"));
     }
 
     @Test
-    public void testInvalidEventTime() throws Exception {
+    void testInvalidEventTime() {
         final InputConversionOperator<Row> operator =
                 new InputConversionOperator<>(
                         createConverter(DataTypes.ROW(DataTypes.FIELD("f", DataTypes.INT()))),
@@ -77,15 +80,18 @@ public class InputConversionOperatorTest {
                         true,
                         false,
                         true);
-        try {
-            operator.processElement(new StreamRecord<>(Row.ofKind(RowKind.INSERT, 12)));
-        } catch (FlinkRuntimeException e) {
-            assertThat(e, containsMessage("Could not find timestamp in DataStream API record."));
-        }
+        assertThatThrownBy(
+                        () ->
+                                operator.processElement(
+                                        new StreamRecord<>(Row.ofKind(RowKind.INSERT, 12))))
+                .satisfies(
+                        anyCauseMatches(
+                                FlinkRuntimeException.class,
+                                "Could not find timestamp in DataStream API record."));
     }
 
     @Test
-    public void testWatermarkSuppression() throws Exception {
+    void testWatermarkSuppression() throws Exception {
         final InputConversionOperator<Row> operator =
                 new InputConversionOperator<>(
                         createConverter(DataTypes.ROW(DataTypes.FIELD("f", DataTypes.INT()))),
@@ -98,8 +104,8 @@ public class InputConversionOperatorTest {
         operator.processWatermark(new Watermark(1000));
     }
 
-    @Test(expected = NullPointerException.class)
-    public void testReceiveMaxWatermark() throws Exception {
+    @Test
+    void testReceiveMaxWatermark() throws Exception {
         final InputConversionOperator<Row> operator =
                 new InputConversionOperator<>(
                         createConverter(DataTypes.ROW(DataTypes.FIELD("f", DataTypes.INT()))),
@@ -109,7 +115,8 @@ public class InputConversionOperatorTest {
                         true);
 
         // would throw an exception because it always emits Watermark.MAX_WATERMARK
-        operator.processWatermark(Watermark.MAX_WATERMARK);
+        assertThatThrownBy(() -> operator.processWatermark(Watermark.MAX_WATERMARK))
+                .isInstanceOf(NullPointerException.class);
     }
 
     private static DynamicTableSource.DataStructureConverter createConverter(DataType dataType) {

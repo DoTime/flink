@@ -22,6 +22,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamElement;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.watermarkstatus.WatermarkStatus;
 import org.apache.flink.table.data.RowData;
 
 import java.util.ArrayList;
@@ -29,22 +30,21 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static junit.framework.TestCase.assertTrue;
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Base class for watermark assigner operator test. */
-public abstract class WatermarkAssignerOperatorTestBase {
+abstract class WatermarkAssignerOperatorTestBase {
 
     protected Tuple2<Long, Long> validateElement(
             Object element, long nextElementValue, long currentWatermark) {
         if (element instanceof StreamRecord) {
             @SuppressWarnings("unchecked")
             StreamRecord<RowData> record = (StreamRecord<RowData>) element;
-            assertEquals(nextElementValue, record.getValue().getLong(0));
+            assertThat(record.getValue().getLong(0)).isEqualTo(nextElementValue);
             return new Tuple2<>(nextElementValue + 1, currentWatermark);
         } else if (element instanceof Watermark) {
             long wt = ((Watermark) element).getTimestamp();
-            assertTrue(wt > currentWatermark);
+            assertThat(wt).isGreaterThan(currentWatermark);
             return new Tuple2<>(nextElementValue, wt);
         } else {
             throw new IllegalArgumentException("unrecognized element: " + element);
@@ -59,6 +59,13 @@ public abstract class WatermarkAssignerOperatorTestBase {
             }
         }
         return watermarks;
+    }
+
+    protected List<WatermarkStatus> extractWatermarkStatuses(Collection<Object> collection) {
+        return collection.stream()
+                .filter(obj -> obj instanceof WatermarkStatus)
+                .map(obj -> (WatermarkStatus) obj)
+                .collect(Collectors.toList());
     }
 
     protected List<Object> filterOutRecords(Collection<Object> collection) {

@@ -29,10 +29,9 @@ import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.connector.source.LookupTableSource;
-import org.apache.flink.table.module.ModuleManager;
 import org.apache.flink.table.planner.calcite.FlinkContext;
-import org.apache.flink.table.planner.calcite.FlinkContextImpl;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
+import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
 import org.apache.flink.table.planner.factories.TestValuesTableFactory;
 import org.apache.flink.table.planner.plan.abilities.source.LimitPushDownSpec;
 import org.apache.flink.table.planner.plan.abilities.source.SourceAbilitySpec;
@@ -59,16 +58,13 @@ import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 /** Tests for {@link TemporalTableSourceSpec} serialization and deserialization. */
 @Execution(CONCURRENT)
 public class TemporalTableSourceSpecSerdeTest {
-    private static final FlinkTypeFactory FACTORY = FlinkTypeFactory.INSTANCE();
+    private static final FlinkTypeFactory FACTORY =
+            new FlinkTypeFactory(
+                    TemporalTableSourceSpecSerdeTest.class.getClassLoader(),
+                    FlinkTypeSystem.INSTANCE);
 
     private static final FlinkContext FLINK_CONTEXT =
-            new FlinkContextImpl(
-                    false,
-                    TableConfig.getDefault(),
-                    new ModuleManager(),
-                    null,
-                    CatalogManagerMocks.createEmptyCatalogManager(),
-                    null);
+            JsonSerdeTestUtil.configuredSerdeContext().getFlinkContext();
 
     public static Stream<TemporalTableSourceSpec> testTemporalTableSourceSpecSerde() {
         Map<String, String> options1 = new HashMap<>();
@@ -83,11 +79,10 @@ public class TemporalTableSourceSpecSerdeTest {
                         null);
 
         final CatalogTable catalogTable1 =
-                CatalogTable.of(
-                        Schema.newBuilder().fromResolvedSchema(resolvedSchema1).build(),
-                        null,
-                        Collections.emptyList(),
-                        options1);
+                CatalogTable.newBuilder()
+                        .schema(Schema.newBuilder().fromResolvedSchema(resolvedSchema1).build())
+                        .options(options1)
+                        .build();
 
         ResolvedCatalogTable resolvedCatalogTable =
                 new ResolvedCatalogTable(catalogTable1, resolvedSchema1);
@@ -105,6 +100,7 @@ public class TemporalTableSourceSpecSerdeTest {
                                 ObjectIdentifier.of("default_catalog", "default_db", "MyTable"),
                                 resolvedCatalogTable),
                         FLINK_CONTEXT,
+                        FACTORY,
                         new SourceAbilitySpec[] {new LimitPushDownSpec(100)});
         TemporalTableSourceSpec temporalTableSourceSpec1 =
                 new TemporalTableSourceSpec(tableSourceTable1);
@@ -121,7 +117,7 @@ public class TemporalTableSourceSpecSerdeTest {
                 false);
 
         SerdeContext serdeCtx =
-                JsonSerdeTestUtil.configuredSerdeContext(catalogManager, new TableConfig());
+                JsonSerdeTestUtil.configuredSerdeContext(catalogManager, TableConfig.getDefault());
 
         String json = JsonSerdeTestUtil.toJson(serdeCtx, spec);
         TemporalTableSourceSpec actual =

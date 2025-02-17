@@ -25,21 +25,35 @@ import org.apache.flink.table.functions.BuiltInFunctionDefinition;
 import org.apache.flink.table.functions.FunctionDefinition;
 import org.apache.flink.table.functions.FunctionIdentifier;
 import org.apache.flink.table.functions.FunctionKind;
+import org.apache.flink.table.functions.SpecializedFunction.ExpressionEvaluatorFactory;
 import org.apache.flink.table.planner.calcite.FlinkContext;
+import org.apache.flink.table.planner.calcite.FlinkRelBuilder;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
+import org.apache.flink.table.planner.calcite.RexFactory;
 import org.apache.flink.table.planner.utils.ShortcutUtils;
 import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.inference.StaticArgument;
+import org.apache.flink.table.types.inference.StaticArgumentTrait;
+import org.apache.flink.table.types.inference.SystemTypeInference;
 import org.apache.flink.table.types.inference.TypeInference;
 
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.rel.type.StructKind;
 import org.apache.calcite.sql.SqlFunction;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.SqlTableFunction;
+import org.apache.calcite.sql.TableCharacteristic;
+import org.apache.calcite.sql.type.SqlReturnTypeInference;
+import org.apache.calcite.tools.RelBuilder;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.apache.flink.table.planner.functions.bridging.BridgingUtils.createName;
-import static org.apache.flink.table.planner.functions.bridging.BridgingUtils.createParamTypes;
 import static org.apache.flink.table.planner.functions.bridging.BridgingUtils.createSqlFunctionCategory;
 import static org.apache.flink.table.planner.functions.bridging.BridgingUtils.createSqlIdentifier;
 import static org.apache.flink.table.planner.functions.bridging.BridgingUtils.createSqlOperandTypeChecker;
@@ -52,19 +66,21 @@ import static org.apache.flink.util.Preconditions.checkState;
  * (either a system or user-defined function).
  */
 @Internal
-public final class BridgingSqlFunction extends SqlFunction {
+public class BridgingSqlFunction extends SqlFunction {
 
+    // it would be great to inject the factories from the outside, but since the code generation
+    // stack is too complex, we pass context with every function
     private final DataTypeFactory dataTypeFactory;
-
     private final FlinkTypeFactory typeFactory;
-
+    private final RexFactory rexFactory;
     private final ContextResolvedFunction resolvedFunction;
 
-    private final TypeInference typeInference;
+    protected final TypeInference typeInference;
 
     private BridgingSqlFunction(
             DataTypeFactory dataTypeFactory,
             FlinkTypeFactory typeFactory,
+            RexFactory rexFactory,
             SqlKind kind,
             ContextResolvedFunction resolvedFunction,
             TypeInference typeInference) {
@@ -78,11 +94,11 @@ public final class BridgingSqlFunction extends SqlFunction {
                         dataTypeFactory, resolvedFunction.getDefinition(), typeInference),
                 createSqlOperandTypeChecker(
                         dataTypeFactory, resolvedFunction.getDefinition(), typeInference),
-                createParamTypes(typeFactory, typeInference),
                 createSqlFunctionCategory(resolvedFunction));
 
         this.dataTypeFactory = dataTypeFactory;
         this.typeFactory = typeFactory;
+        this.rexFactory = rexFactory;
         this.resolvedFunction = resolvedFunction;
         this.typeInference = typeInference;
     }
@@ -92,6 +108,7 @@ public final class BridgingSqlFunction extends SqlFunction {
      *
      * @param dataTypeFactory used for creating {@link DataType}
      * @param typeFactory used for bridging to {@link RelDataType}
+     * @param rexFactory used for {@link ExpressionEvaluatorFactory}
      * @param kind commonly used SQL standard function; use {@link SqlKind#OTHER_FUNCTION} if this
      *     function cannot be mapped to a common function kind.
      * @param resolvedFunction system or user-defined {@link FunctionDefinition} with context
@@ -100,16 +117,37 @@ public final class BridgingSqlFunction extends SqlFunction {
     public static BridgingSqlFunction of(
             DataTypeFactory dataTypeFactory,
             FlinkTypeFactory typeFactory,
+            RexFactory rexFactory,
             SqlKind kind,
             ContextResolvedFunction resolvedFunction,
             TypeInference typeInference) {
         final FunctionKind functionKind = resolvedFunction.getDefinition().getKind();
         checkState(
-                functionKind == FunctionKind.SCALAR || functionKind == FunctionKind.TABLE,
+                functionKind == FunctionKind.SCALAR
+                        || functionKind == FunctionKind.ASYNC_SCALAR
+                        || functionKind == FunctionKind.TABLE
+                        || functionKind == FunctionKind.PROCESS_TABLE,
                 "Scalar or table function kind expected.");
 
+        final TypeInference systemTypeInference =
+                SystemTypeInference.of(functionKind, typeInference);
+
+        if (functionKind == FunctionKind.TABLE || functionKind == FunctionKind.PROCESS_TABLE) {
+            return new BridgingSqlFunction.WithTableFunction(
+                    dataTypeFactory,
+                    typeFactory,
+                    rexFactory,
+                    kind,
+                    resolvedFunction,
+                    systemTypeInference);
+        }
         return new BridgingSqlFunction(
-                dataTypeFactory, typeFactory, kind, resolvedFunction, typeInference);
+                dataTypeFactory,
+                typeFactory,
+                rexFactory,
+                kind,
+                resolvedFunction,
+                systemTypeInference);
     }
 
     /** Creates an instance of a scalar or table function during translation. */
@@ -123,6 +161,7 @@ public final class BridgingSqlFunction extends SqlFunction {
         return of(
                 dataTypeFactory,
                 typeFactory,
+                context.getRexFactory(),
                 SqlKind.OTHER_FUNCTION,
                 resolvedFunction,
                 typeInference);
@@ -153,6 +192,10 @@ public final class BridgingSqlFunction extends SqlFunction {
         return typeFactory;
     }
 
+    public RexFactory getRexFactory() {
+        return rexFactory;
+    }
+
     public ContextResolvedFunction getResolvedFunction() {
         return resolvedFunction;
     }
@@ -166,15 +209,85 @@ public final class BridgingSqlFunction extends SqlFunction {
     }
 
     @Override
-    public List<String> getParamNames() {
-        if (typeInference.getNamedArguments().isPresent()) {
-            return typeInference.getNamedArguments().get();
-        }
-        return super.getParamNames();
-    }
-
-    @Override
     public boolean isDeterministic() {
         return resolvedFunction.getDefinition().isDeterministic();
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Table function extension
+    // --------------------------------------------------------------------------------------------
+
+    /** Special flavor of {@link BridgingSqlFunction} to indicate a table function to Calcite. */
+    public static class WithTableFunction extends BridgingSqlFunction implements SqlTableFunction {
+
+        private WithTableFunction(
+                DataTypeFactory dataTypeFactory,
+                FlinkTypeFactory typeFactory,
+                RexFactory rexFactory,
+                SqlKind kind,
+                ContextResolvedFunction resolvedFunction,
+                TypeInference systemTypeInference) {
+            super(
+                    dataTypeFactory,
+                    typeFactory,
+                    rexFactory,
+                    kind,
+                    resolvedFunction,
+                    systemTypeInference);
+        }
+
+        /**
+         * The conversion to a row type is handled by the system type inference.
+         *
+         * @see FlinkRelBuilder#pushFunctionScan(RelBuilder, SqlOperator, int, Iterable, List)
+         */
+        @Override
+        public SqlReturnTypeInference getRowTypeInference() {
+            final SqlReturnTypeInference inference = getReturnTypeInference();
+            assert inference != null;
+            return (opBinding) -> {
+                final RelDataType relDataType = inference.inferReturnType(opBinding);
+                assert relDataType != null;
+                final List<RelDataTypeField> fields = relDataType.getFieldList();
+                return opBinding
+                        .getTypeFactory()
+                        .createStructType(
+                                StructKind.FULLY_QUALIFIED,
+                                fields.stream()
+                                        .map(RelDataTypeField::getType)
+                                        .collect(Collectors.toList()),
+                                fields.stream()
+                                        .map(RelDataTypeField::getName)
+                                        .collect(Collectors.toList()));
+            };
+        }
+
+        @Override
+        public @Nullable TableCharacteristic tableCharacteristic(int ordinal) {
+            final List<StaticArgument> args = typeInference.getStaticArguments().orElse(null);
+            if (args == null || ordinal >= args.size()) {
+                return null;
+            }
+            final StaticArgument arg = args.get(ordinal);
+            final TableCharacteristic.Semantics semantics;
+            if (arg.is(StaticArgumentTrait.TABLE_AS_ROW)) {
+                semantics = TableCharacteristic.Semantics.ROW;
+            } else if (arg.is(StaticArgumentTrait.TABLE_AS_SET)) {
+                semantics = TableCharacteristic.Semantics.SET;
+            } else {
+                return null;
+            }
+            return TableCharacteristic.builder(semantics).build();
+        }
+
+        @Override
+        public boolean argumentMustBeScalar(int ordinal) {
+            final List<StaticArgument> args = typeInference.getStaticArguments().orElse(null);
+            if (args == null || ordinal >= args.size()) {
+                return true;
+            }
+            final StaticArgument arg = args.get(ordinal);
+            return !arg.is(StaticArgumentTrait.TABLE);
+        }
     }
 }

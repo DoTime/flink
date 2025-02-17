@@ -15,12 +15,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.codegen.calls
 
-import org.apache.flink.table.planner.codegen.CodeGenUtils.{BINARY_STRING, className, newName, primitiveTypeTermForType}
-import org.apache.flink.table.planner.codegen.JsonGenerateUtils.createNodeTerm
 import org.apache.flink.table.planner.codegen.{CodeGeneratorContext, GeneratedExpression}
+import org.apache.flink.table.planner.codegen.CodeGenUtils.{className, newName, primitiveTypeTermForType, BINARY_STRING}
+import org.apache.flink.table.planner.codegen.JsonGenerateUtils.createNodeTerm
 import org.apache.flink.table.runtime.functions.SqlJsonUtils
 import org.apache.flink.table.types.logical.LogicalType
 
@@ -37,7 +36,7 @@ class JsonStringCallGen(call: RexCall) extends CallGenerator {
 
     val valueTerm = createNodeTerm(ctx, operands.head, call.operands.get(0))
 
-    val resultTerm = newName("result")
+    val resultTerm = newName(ctx, "result")
     val resultTermType = primitiveTypeTermForType(returnType)
     val resultCode = s"""
                         |${operands.map(_.code).mkString}

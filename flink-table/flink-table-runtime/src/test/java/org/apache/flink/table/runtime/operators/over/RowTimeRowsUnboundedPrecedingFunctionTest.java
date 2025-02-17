@@ -24,16 +24,16 @@ import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.util.OneInputStreamOperatorTestHarness;
 import org.apache.flink.table.data.RowData;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import static org.apache.flink.table.runtime.util.StreamRecordUtils.insertRecord;
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link RowTimeRowsUnboundedPrecedingFunction}. */
-public class RowTimeRowsUnboundedPrecedingFunctionTest extends RowTimeOverWindowTestBase {
+class RowTimeRowsUnboundedPrecedingFunctionTest extends RowTimeOverWindowTestBase {
 
     @Test
-    public void testLateRecordMetrics() throws Exception {
+    void testLateRecordMetrics() throws Exception {
         RowTimeRowsUnboundedPrecedingFunction<RowData> function =
                 new RowTimeRowsUnboundedPrecedingFunction<>(
                         1000, 2000, aggsHandleFunction, accTypes, inputFieldTypes, 2);
@@ -57,6 +57,6 @@ public class RowTimeRowsUnboundedPrecedingFunctionTest extends RowTimeOverWindow
         // late record
         testHarness.processElement(insertRecord("key", 1L, 400L));
 
-        assertEquals(1L, counter.getCount());
+        assertThat(counter.getCount()).isEqualTo(1L);
     }
 }

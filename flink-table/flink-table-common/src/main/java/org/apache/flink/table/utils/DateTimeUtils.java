@@ -22,8 +22,8 @@ import org.apache.flink.annotation.Internal;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.DecimalData;
 import org.apache.flink.table.data.TimestampData;
-import org.apache.flink.table.types.logical.DateType;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.TimestampType;
 
 import org.slf4j.Logger;
@@ -141,6 +141,8 @@ public class DateTimeUtils {
                     .appendFraction(NANO_OF_SECOND, 0, 9, true)
                     .optionalEnd()
                     .toFormatter();
+
+    private static final Integer DEFAULT_PRECISION = 3;
 
     /**
      * A ThreadLocal cache map for SimpleDateFormat, because SimpleDateFormat is not thread-safe.
@@ -422,8 +424,12 @@ public class DateTimeUtils {
     }
 
     public static TimestampData parseTimestampData(String dateStr, String format) {
-        DateTimeFormatter formatter = DATETIME_FORMATTER_CACHE.get(format);
-
+        DateTimeFormatter formatter;
+        try {
+            formatter = DATETIME_FORMATTER_CACHE.get(format);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
         try {
             TemporalAccessor accessor = formatter.parse(dateStr);
             // Precision is hardcoded to match signature of TO_TIMESTAMP
@@ -695,8 +701,8 @@ public class DateTimeUtils {
         LocalDateTime ldt = ts.toLocalDateTime();
 
         String fraction = pad(9, ldt.getNano());
-        while (fraction.length() > precision && fraction.endsWith("0")) {
-            fraction = fraction.substring(0, fraction.length() - 1);
+        if (fraction.length() > precision) {
+            fraction = fraction.substring(0, precision);
         }
 
         StringBuilder ymdhms =
@@ -735,12 +741,23 @@ public class DateTimeUtils {
 
     public static String formatTimestampString(
             String dateStr, String fromFormat, String toFormat, TimeZone tz) {
+        return formatTimestampStringWithOffset(dateStr, fromFormat, toFormat, tz, 0);
+    }
+
+    public static String formatTimestampStringWithOffset(
+            String dateStr, String fromFormat, String toFormat, TimeZone tz, long offsetMills) {
         SimpleDateFormat fromFormatter = FORMATTER_CACHE.get(fromFormat);
         fromFormatter.setTimeZone(tz);
         SimpleDateFormat toFormatter = FORMATTER_CACHE.get(toFormat);
         toFormatter.setTimeZone(tz);
         try {
-            return toFormatter.format(fromFormatter.parse(dateStr));
+            Date date = fromFormatter.parse(dateStr);
+
+            if (offsetMills != 0) {
+                date = new Date(date.getTime() + offsetMills);
+            }
+
+            return toFormatter.format(date);
         } catch (ParseException e) {
             LOG.error(
                     "Exception when formatting: '"
@@ -749,6 +766,8 @@ public class DateTimeUtils {
                             + fromFormat
                             + "' to: '"
                             + toFormat
+                            + "' with offsetMills: '"
+                            + offsetMills
                             + "'",
                     e);
             return null;
@@ -1107,32 +1126,37 @@ public class DateTimeUtils {
             case ISODOW:
             case ISOYEAR:
             case WEEK:
-                if (type instanceof TimestampType) {
+                if (type.is(LogicalTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE)) {
                     long d = divide(utcTs, TimeUnit.DAY.multiplier);
                     return extractFromDate(range, d);
-                } else if (type instanceof DateType) {
+                } else if (type.is(LogicalTypeRoot.DATE)) {
                     return divide(utcTs, TimeUnit.DAY.multiplier);
                 } else {
                     // TODO support it
-                    throw new TableException(type + " is unsupported now.");
+                    throw new TableException(startUnit + " for " + type + " is unsupported now.");
                 }
             case EPOCH:
-                // TODO support it
-                throw new TableException("EPOCH is unsupported now.");
+                if (type.isAnyOf(
+                        LogicalTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE, LogicalTypeRoot.DATE)) {
+                    return utcTs / 1000;
+                } else {
+                    // TODO support it
+                    throw new TableException(startUnit + " for " + type + " is unsupported now.");
+                }
             case MICROSECOND:
-                if (type instanceof TimestampType) {
+                if (type.is(LogicalTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE)) {
                     long millis = divide(mod(utcTs, getFactor(startUnit)), startUnit.multiplier);
                     int micros = nanoOfMillisecond / 1000;
                     return millis + micros;
                 } else {
-                    throw new TableException(type + " is unsupported now.");
+                    throw new TableException(startUnit + " for " + type + " is unsupported now.");
                 }
             case NANOSECOND:
-                if (type instanceof TimestampType) {
+                if (type.is(LogicalTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE)) {
                     long millis = divide(mod(utcTs, getFactor(startUnit)), startUnit.multiplier);
                     return millis + nanoOfMillisecond;
                 } else {
-                    throw new TableException(type + " is unsupported now.");
+                    throw new TableException(startUnit + " for " + type + " is unsupported now.");
                 }
             default:
                 // fall through
@@ -1201,6 +1225,12 @@ public class DateTimeUtils {
         long utcTs = ts + offset;
 
         switch (range) {
+            case MILLISECOND:
+                return floor(utcTs, 1L) - offset;
+            case SECOND:
+                return floor(utcTs, MILLIS_PER_SECOND) - offset;
+            case MINUTE:
+                return floor(utcTs, MILLIS_PER_MINUTE) - offset;
             case HOUR:
                 return floor(utcTs, MILLIS_PER_HOUR) - offset;
             case DAY:
@@ -1231,6 +1261,12 @@ public class DateTimeUtils {
         long utcTs = ts + offset;
 
         switch (range) {
+            case MILLISECOND:
+                return ceil(utcTs, 1L) - offset;
+            case SECOND:
+                return ceil(utcTs, MILLIS_PER_SECOND) - offset;
+            case MINUTE:
+                return ceil(utcTs, MILLIS_PER_MINUTE) - offset;
             case HOUR:
                 return ceil(utcTs, MILLIS_PER_HOUR) - offset;
             case DAY:
@@ -1323,6 +1359,9 @@ public class DateTimeUtils {
                     offset -= 7;
                 }
                 return ymdToUnixDate(year, month, day) - offset;
+            case DAY:
+                int res = ymdToUnixDate(year, month, day);
+                return floor ? res : res + 1;
             default:
                 throw new AssertionError(range);
         }
@@ -1705,6 +1744,7 @@ public class DateTimeUtils {
      * use internally, when converting to and from UNIX timestamps. And also may be arguments to the
      * {@code EXTRACT}, {@code TIMESTAMPADD} and {@code TIMESTAMPDIFF} functions.
      */
+    @Internal
     public enum TimeUnit {
         YEAR(true, ' ', BigDecimal.valueOf(12) /* months */, null),
         MONTH(true, '-', BigDecimal.ONE /* months */, BigDecimal.valueOf(12)),
@@ -1766,6 +1806,7 @@ public class DateTimeUtils {
      * A range of time units. The first is more significant than the other (e.g. year-to-day) or the
      * same as the other (e.g. month).
      */
+    @Internal
     public enum TimeUnitRange {
         YEAR(TimeUnit.YEAR, null),
         YEAR_TO_MONTH(TimeUnit.YEAR, TimeUnit.MONTH),

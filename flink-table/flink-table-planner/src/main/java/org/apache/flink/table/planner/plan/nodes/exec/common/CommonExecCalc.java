@@ -19,6 +19,7 @@
 package org.apache.flink.table.planner.plan.nodes.exec.common;
 
 import org.apache.flink.api.dag.Transformation;
+import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.codegen.CalcCodeGenerator;
 import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
@@ -57,10 +58,10 @@ public abstract class CommonExecCalc extends ExecNodeBase<RowData>
     public static final String FIELD_NAME_CONDITION = "condition";
 
     @JsonProperty(FIELD_NAME_PROJECTION)
-    private final List<RexNode> projection;
+    protected final List<RexNode> projection;
 
     @JsonProperty(FIELD_NAME_CONDITION)
-    private final @Nullable RexNode condition;
+    protected final @Nullable RexNode condition;
 
     private final Class<?> operatorBaseClass;
     private final boolean retainHeader;
@@ -68,6 +69,7 @@ public abstract class CommonExecCalc extends ExecNodeBase<RowData>
     protected CommonExecCalc(
             int id,
             ExecNodeContext context,
+            ReadableConfig persistedConfig,
             List<RexNode> projection,
             @Nullable RexNode condition,
             Class<?> operatorBaseClass,
@@ -75,7 +77,7 @@ public abstract class CommonExecCalc extends ExecNodeBase<RowData>
             List<InputProperty> inputProperties,
             RowType outputType,
             String description) {
-        super(id, context, inputProperties, outputType, description);
+        super(id, context, persistedConfig, inputProperties, outputType, description);
         checkArgument(inputProperties.size() == 1);
         this.projection = checkNotNull(projection);
         this.condition = condition;
@@ -91,7 +93,7 @@ public abstract class CommonExecCalc extends ExecNodeBase<RowData>
         final Transformation<RowData> inputTransform =
                 (Transformation<RowData>) inputEdge.translateToPlan(planner);
         final CodeGeneratorContext ctx =
-                new CodeGeneratorContext(config.getTableConfig())
+                new CodeGeneratorContext(config, planner.getFlinkContext().getClassLoader())
                         .setOperatorBaseClass(operatorBaseClass);
 
         final CodeGenOperatorFactory<RowData> substituteStreamOperator =
@@ -108,6 +110,7 @@ public abstract class CommonExecCalc extends ExecNodeBase<RowData>
                 createTransformationMeta(CALC_TRANSFORMATION, config),
                 substituteStreamOperator,
                 InternalTypeInfo.of(getOutputType()),
-                inputTransform.getParallelism());
+                inputTransform.getParallelism(),
+                false);
     }
 }

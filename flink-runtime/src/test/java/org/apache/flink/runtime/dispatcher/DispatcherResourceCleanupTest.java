@@ -20,8 +20,8 @@ package org.apache.flink.runtime.dispatcher;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.JobStatus;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.core.failure.FailureEnricher;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.blob.BlobUtils;
@@ -50,6 +50,7 @@ import org.apache.flink.runtime.rpc.TestingRpcService;
 import org.apache.flink.runtime.scheduler.ExecutionGraphInfo;
 import org.apache.flink.runtime.testutils.TestingJobResultStore;
 import org.apache.flink.runtime.util.TestingFatalErrorHandlerResource;
+import org.apache.flink.streaming.api.graph.ExecutionPlan;
 import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.FlinkException;
 import org.apache.flink.util.Preconditions;
@@ -70,8 +71,10 @@ import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -79,13 +82,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import static org.apache.flink.core.testutils.FlinkMatchers.containsCause;
-import static org.apache.flink.core.testutils.FlinkMatchers.containsMessage;
 import static org.apache.flink.runtime.dispatcher.AbstractDispatcherTest.awaitStatus;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 /** Tests the resource cleanup by the {@link Dispatcher}. */
@@ -99,7 +103,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
     public final TestingFatalErrorHandlerResource testingFatalErrorHandlerResource =
             new TestingFatalErrorHandlerResource();
 
-    private static final Time timeout = Time.seconds(10L);
+    private static final Duration timeout = Duration.ofSeconds(10L);
 
     private static TestingRpcService rpcService;
 
@@ -165,7 +169,10 @@ public class DispatcherResourceCleanupTest extends TestLogger {
             TestingDispatcher.Builder dispatcherBuilder,
             JobManagerRunnerFactory jobManagerRunnerFactory)
             throws Exception {
-        dispatcher = dispatcherBuilder.setJobManagerRunnerFactory(jobManagerRunnerFactory).build();
+        dispatcher =
+                dispatcherBuilder
+                        .setJobManagerRunnerFactory(jobManagerRunnerFactory)
+                        .build(rpcService);
 
         dispatcher.start();
 
@@ -176,7 +183,6 @@ public class DispatcherResourceCleanupTest extends TestLogger {
         final JobManagerRunnerRegistry jobManagerRunnerRegistry =
                 new DefaultJobManagerRunnerRegistry(2);
         return TestingDispatcher.builder()
-                .setRpcService(rpcService)
                 .setBlobServer(blobServer)
                 .setJobManagerRunnerRegistry(jobManagerRunnerRegistry)
                 .setFatalErrorHandler(testingFatalErrorHandlerResource.getFatalErrorHandler())
@@ -213,7 +219,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
     @AfterClass
     public static void teardownClass() throws ExecutionException, InterruptedException {
         if (rpcService != null) {
-            rpcService.stopService().get();
+            rpcService.closeAsync().get();
         }
     }
 
@@ -265,12 +271,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
         startDispatcher(new FailingJobManagerRunnerFactory(new FlinkException("Test exception")));
         final CompletableFuture<Acknowledge> submissionFuture = submitJob();
 
-        try {
-            submissionFuture.get();
-            fail("Job submission was expected to fail.");
-        } catch (ExecutionException ee) {
-            assertThat(ee, containsCause(JobSubmissionException.class));
-        }
+        assertThatThrownBy(submissionFuture::get).hasCauseInstanceOf(JobSubmissionException.class);
 
         assertGlobalCleanupTriggered(jobId);
     }
@@ -329,8 +330,11 @@ public class DispatcherResourceCleanupTest extends TestLogger {
                                                     try {
                                                         markAsDirtyLatch.await();
                                                     } catch (InterruptedException e) {
-                                                        throw new RuntimeException(e);
+                                                        Thread.currentThread().interrupt();
+                                                        return FutureUtils.completedExceptionally(
+                                                                e);
                                                     }
+                                                    return FutureUtils.completedVoidFuture();
                                                 })
                                         .build());
 
@@ -352,7 +356,11 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
         final JobResultStore jobResultStore =
                 TestingJobResultStore.builder()
-                        .withMarkResultAsCleanConsumer(markAsCleanFuture::complete)
+                        .withMarkResultAsCleanConsumer(
+                                jobID -> {
+                                    markAsCleanFuture.complete(jobID);
+                                    return FutureUtils.completedVoidFuture();
+                                })
                         .build();
         final OneShotLatch localCleanupLatch = new OneShotLatch();
         final OneShotLatch globalCleanupLatch = new OneShotLatch();
@@ -526,14 +534,14 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
     private void assertLocalCleanupTriggered(JobID jobId)
             throws ExecutionException, InterruptedException, TimeoutException {
-        assertThat(localCleanupFuture.get(100, TimeUnit.MILLISECONDS), equalTo(jobId));
+        assertThat(localCleanupFuture.get(), equalTo(jobId));
         assertThat(globalCleanupFuture.isDone(), is(false));
     }
 
     private void assertGlobalCleanupTriggered(JobID jobId)
             throws ExecutionException, InterruptedException, TimeoutException {
         assertThat(localCleanupFuture.isDone(), is(false));
-        assertThat(globalCleanupFuture.get(100, TimeUnit.MILLISECONDS), equalTo(jobId));
+        assertThat(globalCleanupFuture.get(), equalTo(jobId));
     }
 
     @Test
@@ -541,9 +549,9 @@ public class DispatcherResourceCleanupTest extends TestLogger {
         final JobResultStore jobResultStore =
                 TestingJobResultStore.builder()
                         .withCreateDirtyResultConsumer(
-                                jobResult -> {
-                                    throw new IOException("Expected IOException.");
-                                })
+                                jobResult ->
+                                        FutureUtils.completedExceptionally(
+                                                new IOException("Expected IOException.")))
                         .build();
 
         final TestingJobManagerRunnerFactory jobManagerRunnerFactory =
@@ -562,9 +570,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
         final CompletableFuture<? extends Throwable> errorFuture =
                 this.testingFatalErrorHandlerResource.getFatalErrorHandler().getErrorFuture();
-        assertThat(
-                errorFuture.get(100, TimeUnit.MILLISECONDS),
-                IsInstanceOf.instanceOf(FlinkException.class));
+        assertThat(errorFuture.get(), IsInstanceOf.instanceOf(FlinkException.class));
         testingFatalErrorHandlerResource.getFatalErrorHandler().clearError();
     }
 
@@ -573,11 +579,15 @@ public class DispatcherResourceCleanupTest extends TestLogger {
         final CompletableFuture<JobResultEntry> dirtyJobFuture = new CompletableFuture<>();
         final JobResultStore jobResultStore =
                 TestingJobResultStore.builder()
-                        .withCreateDirtyResultConsumer(dirtyJobFuture::complete)
-                        .withMarkResultAsCleanConsumer(
-                                jobId -> {
-                                    throw new IOException("Expected IOException.");
+                        .withCreateDirtyResultConsumer(
+                                jobResultEntry -> {
+                                    dirtyJobFuture.complete(jobResultEntry);
+                                    return FutureUtils.completedVoidFuture();
                                 })
+                        .withMarkResultAsCleanConsumer(
+                                jobId ->
+                                        FutureUtils.completedExceptionally(
+                                                new IOException("Expected IOException.")))
                         .build();
 
         final TestingJobManagerRunnerFactory jobManagerRunnerFactory =
@@ -631,24 +641,73 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
         // submit and fail during job master runner construction
         queue.offer(Optional.of(testException));
-        try {
-            dispatcherGateway.submitJob(jobGraph, Time.minutes(1)).get();
-            fail("A FlinkException is expected");
-        } catch (Throwable expectedException) {
-            assertThat(expectedException, containsCause(FlinkException.class));
-            assertThat(expectedException, containsMessage(testException.getMessage()));
-            // make sure we've cleaned up in correct order (including HA)
-            assertGlobalCleanupTriggered(jobId);
-        }
+        assertThatThrownBy(() -> dispatcherGateway.submitJob(jobGraph, Duration.ofMinutes(1)).get())
+                .hasCauseInstanceOf(FlinkException.class)
+                .hasRootCauseMessage(testException.getMessage());
+
+        // make sure we've cleaned up in correct order (including HA)
+        assertGlobalCleanupTriggered(jobId);
 
         // don't fail this time
         queue.offer(Optional.empty());
         // submit job again
-        dispatcherGateway.submitJob(jobGraph, Time.minutes(1L)).get();
+        dispatcherGateway.submitJob(jobGraph, Duration.ofMinutes(1L)).get();
         blockingJobManagerRunnerFactory.setJobStatus(JobStatus.RUNNING);
 
         // Ensure job is running
         awaitStatus(dispatcherGateway, jobId, JobStatus.RUNNING);
+    }
+
+    @Test
+    public void testArchivingFinishedJobToHistoryServer() throws Exception {
+
+        final CompletableFuture<Acknowledge> archiveFuture = new CompletableFuture<>();
+
+        final TestingDispatcher.Builder testingDispatcherBuilder =
+                createTestingDispatcherBuilder()
+                        .setHistoryServerArchivist(executionGraphInfo -> archiveFuture);
+
+        final TestingJobManagerRunnerFactory jobManagerRunnerFactory =
+                startDispatcherAndSubmitJob(testingDispatcherBuilder, 0);
+
+        finishJob(jobManagerRunnerFactory.takeCreatedJobManagerRunner());
+
+        // Before the archiving is finished, the cleanup is not finished and the job is not
+        // terminated
+        assertThatNoCleanupWasTriggered();
+        final CompletableFuture<Void> jobTerminationFuture =
+                dispatcher.getJobTerminationFuture(jobId, Duration.ofHours(1));
+        assertFalse(jobTerminationFuture.isDone());
+
+        archiveFuture.complete(Acknowledge.get());
+
+        // Once the archive is finished, the cleanup is finished and the job is terminated.
+        assertGlobalCleanupTriggered(jobId);
+        jobTerminationFuture.join();
+    }
+
+    @Test
+    public void testNotArchivingSuspendedJobToHistoryServer() throws Exception {
+
+        final AtomicBoolean isArchived = new AtomicBoolean(false);
+
+        final TestingDispatcher.Builder testingDispatcherBuilder =
+                createTestingDispatcherBuilder()
+                        .setHistoryServerArchivist(
+                                executionGraphInfo -> {
+                                    isArchived.set(true);
+                                    return CompletableFuture.completedFuture(Acknowledge.get());
+                                });
+
+        final TestingJobManagerRunnerFactory jobManagerRunnerFactory =
+                startDispatcherAndSubmitJob(testingDispatcherBuilder, 0);
+
+        suspendJob(jobManagerRunnerFactory.takeCreatedJobManagerRunner());
+
+        assertLocalCleanupTriggered(jobId);
+        dispatcher.getJobTerminationFuture(jobId, Duration.ofHours(1)).join();
+
+        assertFalse(isArchived.get());
     }
 
     private static final class BlockingJobManagerRunnerFactory
@@ -663,7 +722,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
         @Override
         public TestingJobManagerRunner createJobManagerRunner(
-                JobGraph jobGraph,
+                ExecutionPlan executionPlan,
                 Configuration configuration,
                 RpcService rpcService,
                 HighAvailabilityServices highAvailabilityServices,
@@ -671,13 +730,14 @@ public class DispatcherResourceCleanupTest extends TestLogger {
                 JobManagerSharedServices jobManagerSharedServices,
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
+                Collection<FailureEnricher> failureEnrichers,
                 long initializationTimestamp)
                 throws Exception {
             jobManagerRunnerCreationLatch.run();
 
             this.testingRunner =
                     super.createJobManagerRunner(
-                            jobGraph,
+                            executionPlan,
                             configuration,
                             rpcService,
                             highAvailabilityServices,
@@ -685,6 +745,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
                             jobManagerSharedServices,
                             jobManagerJobMetricGroupFactory,
                             fatalErrorHandler,
+                            failureEnrichers,
                             initializationTimestamp);
 
             TestingJobMasterGateway testingJobMasterGateway =
@@ -695,9 +756,11 @@ public class DispatcherResourceCleanupTest extends TestLogger {
                                                     new ExecutionGraphInfo(
                                                             ArchivedExecutionGraph
                                                                     .createSparseArchivedExecutionGraph(
-                                                                            jobGraph.getJobID(),
-                                                                            jobGraph.getName(),
+                                                                            executionPlan
+                                                                                    .getJobID(),
+                                                                            executionPlan.getName(),
                                                                             JobStatus.RUNNING,
+                                                                            null,
                                                                             null,
                                                                             null,
                                                                             1337))))
@@ -723,7 +786,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
         @Override
         public JobManagerRunner createJobManagerRunner(
-                JobGraph jobGraph,
+                ExecutionPlan executionPlan,
                 Configuration configuration,
                 RpcService rpcService,
                 HighAvailabilityServices highAvailabilityServices,
@@ -731,6 +794,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
                 JobManagerSharedServices jobManagerServices,
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
+                Collection<FailureEnricher> failureEnrichers,
                 long initializationTimestamp) {
             return Optional.ofNullable(jobManagerRunners.poll())
                     .orElseThrow(
@@ -749,7 +813,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
 
         @Override
         public JobManagerRunner createJobManagerRunner(
-                JobGraph jobGraph,
+                ExecutionPlan executionPlan,
                 Configuration configuration,
                 RpcService rpcService,
                 HighAvailabilityServices highAvailabilityServices,
@@ -757,6 +821,7 @@ public class DispatcherResourceCleanupTest extends TestLogger {
                 JobManagerSharedServices jobManagerServices,
                 JobManagerJobMetricGroupFactory jobManagerJobMetricGroupFactory,
                 FatalErrorHandler fatalErrorHandler,
+                Collection<FailureEnricher> failureEnrichers,
                 long initializationTimestamp)
                 throws Exception {
             throw testException;

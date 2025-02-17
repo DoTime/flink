@@ -47,7 +47,7 @@ A list of all pre-defined data types can be found [below](#list-of-data-types).
 
 ### Data Types in the Table API
 
-{{< tabs "dataytes" >}}
+{{< tabs "datatypes" >}}
 {{< tab "Java/Scala" >}}
 Users of the JVM-based API work with instances of `org.apache.flink.table.types.DataType` within the Table API or when
 defining connectors, catalogs, or user-defined functions. 
@@ -1206,7 +1206,7 @@ A row type is similar to the `STRUCT` type known from other non-standard-complia
 ROW<n0 t0, n1 t1, ...>
 ROW<n0 t0 'd0', n1 t1 'd1', ...>
 
-ROW(n0 t0, n1 t1, ...>
+ROW(n0 t0, n1 t1, ...)
 ROW(n0 t0 'd0', n1 t1 'd1', ...)
 ```
 {{< /tab >}}
@@ -1519,13 +1519,13 @@ The matrix below describes the supported cast pairs, where "Y" means supported, 
 | `CHAR`/<br/>`VARCHAR`/<br/>`STRING`    |                   Y                   |                    !                     |     !     |     !     |     !     |     !      |     !     |    !     |    !    |    !     |   !    |   !    |      !      |        !        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `BINARY`/<br/>`VARBINARY`/<br/>`BYTES` |                   Y                   |                    Y                     |     N     |     N     |     N     |     N      |     N     |    N     |    N    |    N     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `BOOLEAN`                              |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
-| `DECIMAL`                              |                   Y                   |                    N                     |     N     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
+| `DECIMAL`                              |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `TINYINT`                              |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |     N²      |       N²        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `SMALLINT`                             |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |     N²      |       N²        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `INTEGER`                              |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |     N²      |       N²        |     Y⁵     |    N    |     N      |   N   |   N   |      N       |   N   |
 | `BIGINT`                               |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |     N²      |       N²        |     Y⁶     |    N    |     N      |   N   |   N   |      N       |   N   |
-| `FLOAT`                                |                   Y                   |                    N                     |     N     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
-| `DOUBLE`                               |                   Y                   |                    N                     |     N     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
+| `FLOAT`                                |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
+| `DOUBLE`                               |                   Y                   |                    N                     |     Y     |     Y     |     Y     |     Y      |     Y     |    Y     |    Y    |    Y     |   N    |   N    |      N      |        N        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `DATE`                                 |                   Y                   |                    N                     |     N     |     N     |     N     |     N      |     N     |    N     |    N    |    N     |   Y    |   N    |      Y      |        Y        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `TIME`                                 |                   Y                   |                    N                     |     N     |     N     |     N     |     N      |     N     |    N     |    N    |    N     |   N    |   Y    |      Y      |        Y        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
 | `TIMESTAMP`                            |                   Y                   |                    N                     |     N     |     N     |     N     |     N      |     N     |    N     |    N    |    N     |   Y    |   Y    |      Y      |        Y        |     N      |    N    |     N      |   N   |   N   |      N       |   N   |
@@ -1553,7 +1553,7 @@ regardless of whether the function used is `CAST` or `TRY_CAST`.
 ### Legacy casting
 
 Pre Flink 1.15 casting behaviour can be enabled by setting `table.exec.legacy-cast-behaviour` to `enabled`.
-In Flink 1.15 this flag is enabled by default.
+In Flink 1.15 this flag is disabled by default.
 
 In particular, this will:
 
@@ -1562,7 +1562,7 @@ In particular, this will:
 * Formatting of some casting to `CHAR`/`VARCHAR`/`STRING` produces slightly different results.
 
 {{< hint warning >}}
-We **discourage** the use of this flag and we **strongly suggest** for new projects to disable this flag and use the new casting behaviour.
+We **discourage** the use of this flag and we **strongly suggest** for new projects to keep this flag disabled and use the new casting behaviour.
 This flag will be removed in the next Flink versions.
 {{< /hint >}}
 

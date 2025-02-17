@@ -34,17 +34,18 @@ import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
 import org.apache.commons.lang3.tuple.Pair;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link TableOperatorWrapperGenerator}. */
-public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
+class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
 
     /**
      * Test for simple sub-graph in a multiple input node.
@@ -60,7 +61,7 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
      * </pre>
      */
     @Test
-    public void testSimple() {
+    void testSimple() {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         Transformation<RowData> source1 = createSource(env, "source1");
         Transformation<RowData> source2 = createSource(env, "source2");
@@ -97,17 +98,17 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
         TableOperatorWrapper<?> outputWrapper = createWrapper(join, 0, 3.0 / 6);
         outputWrapper.addInput(headWrapper1, 1);
         outputWrapper.addInput(headWrapper2, 2);
-        assertEquals(
-                Arrays.asList(
-                        Pair.of(source1, new InputSpec(1, 1, headWrapper1, 1)),
-                        Pair.of(source2, new InputSpec(2, 0, headWrapper2, 1))),
-                generator.getInputTransformAndInputSpecPairs());
-        assertEquals(outputWrapper, generator.getTailWrapper());
-        assertEquals(6, generator.getManagedMemoryWeight());
-        assertEquals(10, generator.getParallelism());
-        assertEquals(-1, generator.getMaxParallelism());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getMinResources());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getPreferredResources());
+        assertThat(generator.getInputTransformAndInputSpecPairs())
+                .isEqualTo(
+                        Arrays.asList(
+                                Pair.of(source1, new InputSpec(1, 1, headWrapper1, 1)),
+                                Pair.of(source2, new InputSpec(2, 0, headWrapper2, 1))));
+        assertThat(generator.getTailWrapper()).isEqualTo(outputWrapper);
+        assertThat(generator.getManagedMemoryWeight()).isEqualTo(6);
+        assertThat(generator.getParallelism()).isEqualTo(10);
+        assertThat(generator.getMaxParallelism()).isEqualTo(-1);
+        assertThat(generator.getMinResources()).isEqualTo(ResourceSpec.UNKNOWN);
+        assertThat(generator.getPreferredResources()).isEqualTo(ResourceSpec.UNKNOWN);
     }
 
     /**
@@ -128,7 +129,7 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
      * </pre>
      */
     @Test
-    public void testComplex() {
+    void testComplex() {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         Transformation<RowData> source1 = createSource(env, "source1");
         Transformation<RowData> source2 = createSource(env, "source2");
@@ -218,21 +219,21 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
         outputWrapper.addInput(joinWrapper2, 1);
         outputWrapper.addInput(joinWrapper3, 2);
 
-        assertEquals(
-                Arrays.asList(
-                        Pair.of(source1, new InputSpec(1, 2, aggWrapper1, 1)),
-                        Pair.of(source2, new InputSpec(2, 3, aggWrapper2, 1)),
-                        Pair.of(source3, new InputSpec(3, 4, joinWrapper2, 2)),
-                        Pair.of(source4, new InputSpec(4, 0, joinWrapper3, 1)),
-                        Pair.of(source5, new InputSpec(5, 1, joinWrapper3, 2))),
-                generator.getInputTransformAndInputSpecPairs());
+        assertThat(generator.getInputTransformAndInputSpecPairs())
+                .isEqualTo(
+                        Arrays.asList(
+                                Pair.of(source1, new InputSpec(1, 2, aggWrapper1, 1)),
+                                Pair.of(source2, new InputSpec(2, 3, aggWrapper2, 1)),
+                                Pair.of(source3, new InputSpec(3, 4, joinWrapper2, 2)),
+                                Pair.of(source4, new InputSpec(4, 0, joinWrapper3, 1)),
+                                Pair.of(source5, new InputSpec(5, 1, joinWrapper3, 2))));
 
-        assertEquals(outputWrapper, generator.getTailWrapper());
-        assertEquals(21, generator.getManagedMemoryWeight());
-        assertEquals(10, generator.getParallelism());
-        assertEquals(-1, generator.getMaxParallelism());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getMinResources());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getPreferredResources());
+        assertThat(generator.getTailWrapper()).isEqualTo(outputWrapper);
+        assertThat(generator.getManagedMemoryWeight()).isEqualTo(21);
+        assertThat(generator.getParallelism()).isEqualTo(10);
+        assertThat(generator.getMaxParallelism()).isEqualTo(-1);
+        assertThat(generator.getMinResources()).isEqualTo(ResourceSpec.UNKNOWN);
+        assertThat(generator.getPreferredResources()).isEqualTo(ResourceSpec.UNKNOWN);
     }
 
     /**
@@ -253,7 +254,7 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
      * </pre>
      */
     @Test
-    public void testWithUnion() {
+    void testWithUnion() {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         Transformation<RowData> source1 = createSource(env, "source1");
         Transformation<RowData> source2 = createSource(env, "source2");
@@ -299,21 +300,21 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
         TableOperatorWrapper<?> outputWrapper = createWrapper(union3, 0);
         outputWrapper.addInput(joinWrapper1, 1);
 
-        assertEquals(
-                Arrays.asList(
-                        Pair.of(source5, new InputSpec(1, 2, outputWrapper, 1)),
-                        Pair.of(source4, new InputSpec(2, 0, aggWrapper1, 1)),
-                        Pair.of(source1, new InputSpec(3, 1, unionWrapper1, 1)),
-                        Pair.of(source2, new InputSpec(4, 1, unionWrapper1, 1)),
-                        Pair.of(source3, new InputSpec(5, 1, unionWrapper2, 1))),
-                generator.getInputTransformAndInputSpecPairs());
+        assertThat(generator.getInputTransformAndInputSpecPairs())
+                .isEqualTo(
+                        Arrays.asList(
+                                Pair.of(source5, new InputSpec(1, 2, outputWrapper, 1)),
+                                Pair.of(source4, new InputSpec(2, 0, aggWrapper1, 1)),
+                                Pair.of(source1, new InputSpec(3, 1, unionWrapper1, 1)),
+                                Pair.of(source2, new InputSpec(4, 1, unionWrapper1, 1)),
+                                Pair.of(source3, new InputSpec(5, 1, unionWrapper2, 1))));
 
-        assertEquals(outputWrapper, generator.getTailWrapper());
-        assertEquals(3, generator.getManagedMemoryWeight());
-        assertEquals(10, generator.getParallelism());
-        assertEquals(-1, generator.getMaxParallelism());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getMinResources());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getPreferredResources());
+        assertThat(generator.getTailWrapper()).isEqualTo(outputWrapper);
+        assertThat(generator.getManagedMemoryWeight()).isEqualTo(3);
+        assertThat(generator.getParallelism()).isEqualTo(10);
+        assertThat(generator.getMaxParallelism()).isEqualTo(-1);
+        assertThat(generator.getMinResources()).isEqualTo(ResourceSpec.UNKNOWN);
+        assertThat(generator.getPreferredResources()).isEqualTo(ResourceSpec.UNKNOWN);
     }
 
     /**
@@ -332,7 +333,7 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
      * </pre>
      */
     @Test
-    public void testDifferentParallelisms() {
+    void testDifferentParallelisms() {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         Transformation<RowData> source1 = createSource(env, "source1");
         Transformation<RowData> source2 = createSource(env, "source2");
@@ -378,32 +379,30 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
         TableOperatorWrapper<?> outputWrapper = createWrapper(join, 0, 1.0 / 3);
         outputWrapper.addInput(unionWrapper, 2);
 
-        assertEquals(
-                Arrays.asList(
-                        Pair.of(source1, new InputSpec(1, 1, calcWrapper1, 1)),
-                        Pair.of(source2, new InputSpec(2, 1, calcWrapper2, 1)),
-                        Pair.of(source3, new InputSpec(3, 0, outputWrapper, 2))),
-                generator.getInputTransformAndInputSpecPairs());
-        assertEquals(
-                Arrays.asList(
-                        new TableOperatorWrapper.Edge(calcWrapper1, unionWrapper, 1),
-                        new TableOperatorWrapper.Edge(calcWrapper2, unionWrapper, 2)),
-                unionWrapper.getInputEdges());
-        assertEquals(
-                Collections.singletonList(
-                        new TableOperatorWrapper.Edge(unionWrapper, outputWrapper, 2)),
-                outputWrapper.getInputEdges());
+        assertThat(generator.getInputTransformAndInputSpecPairs())
+                .isEqualTo(
+                        Arrays.asList(
+                                Pair.of(source1, new InputSpec(1, 1, calcWrapper1, 1)),
+                                Pair.of(source2, new InputSpec(2, 1, calcWrapper2, 1)),
+                                Pair.of(source3, new InputSpec(3, 0, outputWrapper, 2))));
+        assertThat(unionWrapper.getInputEdges())
+                .isEqualTo(
+                        Arrays.asList(
+                                new TableOperatorWrapper.Edge(calcWrapper1, unionWrapper, 1),
+                                new TableOperatorWrapper.Edge(calcWrapper2, unionWrapper, 2)));
+        assertThat(outputWrapper.getInputEdges())
+                .containsExactly(new TableOperatorWrapper.Edge(unionWrapper, outputWrapper, 2));
 
-        assertEquals(outputWrapper, generator.getTailWrapper());
-        assertEquals(3, generator.getManagedMemoryWeight());
-        assertEquals(200, generator.getParallelism());
-        assertEquals(-1, generator.getMaxParallelism());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getMinResources());
-        assertEquals(ResourceSpec.UNKNOWN, generator.getPreferredResources());
+        assertThat(generator.getTailWrapper()).isEqualTo(outputWrapper);
+        assertThat(generator.getManagedMemoryWeight()).isEqualTo(3);
+        assertThat(generator.getParallelism()).isEqualTo(200);
+        assertThat(generator.getMaxParallelism()).isEqualTo(-1);
+        assertThat(generator.getMinResources()).isEqualTo(ResourceSpec.UNKNOWN);
+        assertThat(generator.getPreferredResources()).isEqualTo(ResourceSpec.UNKNOWN);
     }
 
-    @Test(expected = RuntimeException.class)
-    public void testUnsupportedTransformation() {
+    @Test
+    void testUnsupportedTransformation() {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         Transformation<RowData> source1 = createSource(env, "source1");
         Transformation<RowData> source2 = createSource(env, "source2");
@@ -423,7 +422,7 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
         TableOperatorWrapperGenerator generator =
                 new TableOperatorWrapperGenerator(
                         Arrays.asList(source1, source2), join, new int[] {0, 0});
-        generator.generate();
+        assertThatThrownBy(() -> generator.generate()).isInstanceOf(RuntimeException.class);
     }
 
     @SafeVarargs
@@ -486,7 +485,7 @@ public class TableOperatorWrapperGeneratorTest extends MultipleInputTestBase {
         }
 
         @Override
-        public List<Transformation<?>> getTransitivePredecessors() {
+        protected List<Transformation<?>> getTransitivePredecessorsInternal() {
             return Collections.emptyList();
         }
 

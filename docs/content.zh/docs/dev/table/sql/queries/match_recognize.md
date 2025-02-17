@@ -84,7 +84,7 @@ Flink 的 `MATCH_RECOGNIZE` 子句实现是一个完整标准子集。仅支持�
 </dependency>
 ```
 
-或者，也可以将依赖项添加到集群的 classpath（查看 [dependency section]({{< ref "docs/dev/datastream/project-configuration" >}}) 获取更多相关依赖信息）。
+或者，也可以将依赖项添加到集群的 classpath（查看 [dependency section]({{< ref "docs/dev/configuration/overview" >}}) 获取更多相关依赖信息）。
 
 如果你想在 [SQL Client]({{< ref "docs/dev/table/sqlClient" >}}) 中使用 `MATCH_RECOGNIZE` 子句，你无需执行任何操作，因为默认情况下包含所有依赖项。
 
@@ -1002,7 +1002,6 @@ Flink 对 `MATCH_RECOGNIZE` 子句实现是一项长期持续的工作，目前�
   * `CLASSIFIER` 函数，尚不支持返回行映射到的模式变量。
 * `SUBSET` - 它允许创建模式变量的逻辑组，并在 `DEFINE` 和 `MEASURES` 子句中使用这些组。
 * Physical offsets - `PREV/NEXT`，它为所有可见事件建立索引，而不是仅将那些映射到模式变量的事件编入索引（如 [logical offsets](#logical-offsets) 的情况）。
-* 提取时间属性 - 目前无法为后续基于时间的操作提取时间属性。
 * `MATCH_RECOGNIZE` 仅 SQL 支持。Table API 中没有等效项。
 * Aggregations:
   * 不支持 distinct aggregations。

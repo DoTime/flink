@@ -18,7 +18,7 @@
 
 package org.apache.flink.table.runtime.operators.multipleinput.output;
 
-import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.serialization.SerializerConfigImpl;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.streaming.api.operators.Output;
@@ -35,144 +35,141 @@ import org.apache.flink.table.runtime.operators.multipleinput.TestingTwoInputStr
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for the sub-classes of {@link Output}. */
-public class OutputTest extends MultipleInputTestBase {
+class OutputTest extends MultipleInputTestBase {
 
     private StreamRecord<RowData> element;
     private Watermark watermark;
     private LatencyMarker latencyMarker;
     private TypeSerializer<RowData> serializer;
 
-    @Before
-    public void setup() {
+    @BeforeEach
+    void setup() {
         element = new StreamRecord<>(GenericRowData.of(StringData.fromString("123")), 456);
         watermark = new Watermark(1223456789);
         latencyMarker = new LatencyMarker(122345678, new OperatorID(123, 456), 1);
         serializer =
                 InternalTypeInfo.of(RowType.of(DataTypes.STRING().getLogicalType()))
-                        .createSerializer(new ExecutionConfig());
+                        .createSerializer(new SerializerConfigImpl());
     }
 
     @Test
-    public void testOneInput() throws Exception {
+    void testOneInput() throws Exception {
         TestingOneInputStreamOperator op = createOneInputStreamOperator();
         OneInputStreamOperatorOutput output = new OneInputStreamOperatorOutput(op);
 
         output.collect(element);
-        assertEquals(element, op.getCurrentElement());
+        assertThat(op.getCurrentElement()).isEqualTo(element);
 
         output.emitWatermark(watermark);
-        assertEquals(watermark, op.getCurrentWatermark());
+        assertThat(op.getCurrentWatermark()).isEqualTo(watermark);
 
         output.emitLatencyMarker(latencyMarker);
-        assertEquals(latencyMarker, op.getCurrentLatencyMarker());
+        assertThat(op.getCurrentLatencyMarker()).isEqualTo(latencyMarker);
     }
 
     @Test
-    public void testCopyingOneInput() throws Exception {
+    void testCopyingOneInput() throws Exception {
         TestingOneInputStreamOperator op = createOneInputStreamOperator();
         CopyingOneInputStreamOperatorOutput output =
                 new CopyingOneInputStreamOperatorOutput(op, serializer);
 
         output.collect(element);
-        assertNotSame(element, op.getCurrentElement());
-        assertEquals(element, op.getCurrentElement());
+        assertThat(op.getCurrentElement()).isNotSameAs(element);
+        assertThat(op.getCurrentElement()).isEqualTo(element);
 
         output.emitWatermark(watermark);
-        assertSame(watermark, op.getCurrentWatermark());
+        assertThat(op.getCurrentWatermark()).isSameAs(watermark);
 
         output.emitLatencyMarker(latencyMarker);
-        assertSame(latencyMarker, op.getCurrentLatencyMarker());
+        assertThat(op.getCurrentLatencyMarker()).isSameAs(latencyMarker);
     }
 
     @Test
-    public void testFirstInputOfTwoInput() throws Exception {
+    void testFirstInputOfTwoInput() throws Exception {
         TestingTwoInputStreamOperator op = createTwoInputStreamOperator();
         FirstInputOfTwoInputStreamOperatorOutput output =
                 new FirstInputOfTwoInputStreamOperatorOutput(op);
 
         output.collect(element);
-        assertEquals(element, op.getCurrentElement1());
-        assertNull(op.getCurrentElement2());
+        assertThat(op.getCurrentElement1()).isEqualTo(element);
+        assertThat(op.getCurrentElement2()).isNull();
 
         output.emitWatermark(watermark);
-        assertEquals(watermark, op.getCurrentWatermark1());
-        assertNull(op.getCurrentWatermark2());
+        assertThat(op.getCurrentWatermark1()).isEqualTo(watermark);
+        assertThat(op.getCurrentWatermark2()).isNull();
 
         output.emitLatencyMarker(latencyMarker);
-        assertEquals(latencyMarker, op.getCurrentLatencyMarker1());
-        assertNull(op.getCurrentLatencyMarker2());
+        assertThat(op.getCurrentLatencyMarker1()).isEqualTo(latencyMarker);
+        assertThat(op.getCurrentLatencyMarker2()).isNull();
     }
 
     @Test
-    public void testCopyingFirstInputOfTwoInput() throws Exception {
+    void testCopyingFirstInputOfTwoInput() throws Exception {
         TestingTwoInputStreamOperator op = createTwoInputStreamOperator();
         CopyingFirstInputOfTwoInputStreamOperatorOutput output =
                 new CopyingFirstInputOfTwoInputStreamOperatorOutput(op, serializer);
 
         output.collect(element);
-        assertNotSame(element, op.getCurrentElement1());
-        assertEquals(element, op.getCurrentElement1());
-        assertNull(op.getCurrentElement2());
+        assertThat(op.getCurrentElement1()).isNotSameAs(element);
+        assertThat(op.getCurrentElement1()).isEqualTo(element);
+        assertThat(op.getCurrentElement2()).isNull();
 
         output.emitWatermark(watermark);
-        assertSame(watermark, op.getCurrentWatermark1());
-        assertNull(op.getCurrentWatermark2());
+        assertThat(op.getCurrentWatermark1()).isSameAs(watermark);
+        assertThat(op.getCurrentWatermark2()).isNull();
 
         output.emitLatencyMarker(latencyMarker);
-        assertSame(latencyMarker, op.getCurrentLatencyMarker1());
-        assertNull(op.getCurrentLatencyMarker2());
+        assertThat(op.getCurrentLatencyMarker1()).isSameAs(latencyMarker);
+        assertThat(op.getCurrentLatencyMarker2()).isNull();
     }
 
     @Test
-    public void testSecondInputOfTwoInput() throws Exception {
+    void testSecondInputOfTwoInput() throws Exception {
         TestingTwoInputStreamOperator op = createTwoInputStreamOperator();
         SecondInputOfTwoInputStreamOperatorOutput output =
                 new SecondInputOfTwoInputStreamOperatorOutput(op);
 
         output.collect(element);
-        assertEquals(element, op.getCurrentElement2());
-        assertNull(op.getCurrentElement1());
+        assertThat(op.getCurrentElement2()).isEqualTo(element);
+        assertThat(op.getCurrentElement1()).isNull();
 
         output.emitWatermark(watermark);
-        assertEquals(watermark, op.getCurrentWatermark2());
-        assertNull(op.getCurrentWatermark1());
+        assertThat(op.getCurrentWatermark2()).isEqualTo(watermark);
+        assertThat(op.getCurrentWatermark1()).isNull();
 
         output.emitLatencyMarker(latencyMarker);
-        assertEquals(latencyMarker, op.getCurrentLatencyMarker2());
-        assertNull(op.getCurrentLatencyMarker1());
+        assertThat(op.getCurrentLatencyMarker2()).isEqualTo(latencyMarker);
+        assertThat(op.getCurrentLatencyMarker1()).isNull();
     }
 
     @Test
-    public void testCopyingSecondInputOfTwoInput() throws Exception {
+    void testCopyingSecondInputOfTwoInput() throws Exception {
         TestingTwoInputStreamOperator op = createTwoInputStreamOperator();
         CopyingSecondInputOfTwoInputStreamOperatorOutput output =
                 new CopyingSecondInputOfTwoInputStreamOperatorOutput(op, serializer);
 
         output.collect(element);
-        assertNotSame(element, op.getCurrentElement2());
-        assertEquals(element, op.getCurrentElement2());
-        assertNull(op.getCurrentElement1());
+        assertThat(op.getCurrentElement2()).isNotSameAs(element);
+        assertThat(op.getCurrentElement2()).isEqualTo(element);
+        assertThat(op.getCurrentElement1()).isNull();
 
         output.emitWatermark(watermark);
-        assertSame(watermark, op.getCurrentWatermark2());
-        assertNull(op.getCurrentWatermark1());
+        assertThat(op.getCurrentWatermark2()).isSameAs(watermark);
+        assertThat(op.getCurrentWatermark1()).isNull();
 
         output.emitLatencyMarker(latencyMarker);
-        assertSame(latencyMarker, op.getCurrentLatencyMarker2());
-        assertNull(op.getCurrentLatencyMarker1());
+        assertThat(op.getCurrentLatencyMarker2()).isSameAs(latencyMarker);
+        assertThat(op.getCurrentLatencyMarker1()).isNull();
     }
 
     @Test
-    public void testBroadcasting() throws Exception {
+    void testBroadcasting() throws Exception {
         TestingOneInputStreamOperator op1 = createOneInputStreamOperator();
         TestingOneInputStreamOperator op2 = createOneInputStreamOperator();
         BroadcastingOutput output =
@@ -183,25 +180,25 @@ public class OutputTest extends MultipleInputTestBase {
                         });
 
         output.collect(element);
-        assertEquals(element, op1.getCurrentElement());
-        assertEquals(element, op2.getCurrentElement());
+        assertThat(op1.getCurrentElement()).isEqualTo(element);
+        assertThat(op2.getCurrentElement()).isEqualTo(element);
 
         output.emitWatermark(watermark);
-        assertEquals(watermark, op1.getCurrentWatermark());
-        assertEquals(watermark, op2.getCurrentWatermark());
+        assertThat(op1.getCurrentWatermark()).isEqualTo(watermark);
+        assertThat(op2.getCurrentWatermark()).isEqualTo(watermark);
 
         // random choose one output to emit LatencyMarker
         output.emitLatencyMarker(latencyMarker);
         if (op1.getCurrentLatencyMarker() != null) {
-            assertEquals(latencyMarker, op1.getCurrentLatencyMarker());
-            assertNull(op2.getCurrentLatencyMarker());
+            assertThat(op1.getCurrentLatencyMarker()).isEqualTo(latencyMarker);
+            assertThat(op2.getCurrentLatencyMarker()).isNull();
         } else {
-            assertEquals(latencyMarker, op2.getCurrentLatencyMarker());
+            assertThat(op2.getCurrentLatencyMarker()).isEqualTo(latencyMarker);
         }
     }
 
     @Test
-    public void testCopyingBroadcasting() throws Exception {
+    void testCopyingBroadcasting() throws Exception {
         TestingOneInputStreamOperator op1 = createOneInputStreamOperator();
         TestingOneInputStreamOperator op2 = createOneInputStreamOperator();
         CopyingBroadcastingOutput output =
@@ -212,22 +209,22 @@ public class OutputTest extends MultipleInputTestBase {
                         });
 
         output.collect(element);
-        assertNotSame(element, op1.getCurrentElement());
-        assertEquals(element, op1.getCurrentElement());
+        assertThat(op1.getCurrentElement()).isNotSameAs(element);
+        assertThat(op1.getCurrentElement()).isEqualTo(element);
         // the last element does not need copy
-        assertSame(element, op2.getCurrentElement());
+        assertThat(op2.getCurrentElement()).isSameAs(element);
 
         output.emitWatermark(watermark);
-        assertSame(watermark, op1.getCurrentWatermark());
-        assertSame(watermark, op2.getCurrentWatermark());
+        assertThat(op1.getCurrentWatermark()).isSameAs(watermark);
+        assertThat(op2.getCurrentWatermark()).isSameAs(watermark);
 
         // random choose one output to emit LatencyMarker
         output.emitLatencyMarker(latencyMarker);
         if (op1.getCurrentLatencyMarker() != null) {
-            assertSame(latencyMarker, op1.getCurrentLatencyMarker());
-            assertNull(op2.getCurrentLatencyMarker());
+            assertThat(op1.getCurrentLatencyMarker()).isSameAs(latencyMarker);
+            assertThat(op2.getCurrentLatencyMarker()).isNull();
         } else {
-            assertSame(latencyMarker, op2.getCurrentLatencyMarker());
+            assertThat(op2.getCurrentLatencyMarker()).isSameAs(latencyMarker);
         }
     }
 }

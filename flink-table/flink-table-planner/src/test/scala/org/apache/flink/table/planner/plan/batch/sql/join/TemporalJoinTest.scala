@@ -19,7 +19,9 @@ package org.apache.flink.table.planner.plan.batch.sql.join
 
 import org.apache.flink.table.api.TableException
 import org.apache.flink.table.planner.utils.{BatchTableTestUtil, TableTestBase}
-import org.junit.{Before, Test}
+
+import org.assertj.core.api.Assertions.assertThatExceptionOfType
+import org.junit.jupiter.api.{BeforeEach, Test}
 
 /**
  * Test temporal join in batch mode.
@@ -30,59 +32,55 @@ class TemporalJoinTest extends TableTestBase {
 
   val util: BatchTableTestUtil = batchTestUtil()
 
-  @Before
+  @BeforeEach
   def before(): Unit = {
-    util.addTable(
-      """
-        |CREATE TABLE Orders (
-        | o_amount INT,
-        | o_currency STRING,
-        | o_rowtime TIMESTAMP(3),
-        | o_proctime as PROCTIME(),
-        | WATERMARK FOR o_rowtime AS o_rowtime
-        |) WITH (
-        | 'connector' = 'values',
-        | 'bounded' = 'true'
-        |)
+    util.addTable("""
+                    |CREATE TABLE Orders (
+                    | o_amount INT,
+                    | o_currency STRING,
+                    | o_rowtime TIMESTAMP(3),
+                    | o_proctime as PROCTIME(),
+                    | WATERMARK FOR o_rowtime AS o_rowtime
+                    |) WITH (
+                    | 'connector' = 'values',
+                    | 'bounded' = 'true'
+                    |)
       """.stripMargin)
 
-    util.addTable(
-      """
-        |CREATE TABLE RatesHistory (
-        | currency STRING,
-        | rate INT,
-        | rowtime TIMESTAMP(3),
-        | WATERMARK FOR rowtime AS rowtime
-        |) WITH (
-        | 'connector' = 'values',
-        | 'bounded' = 'true'
-        |)
+    util.addTable("""
+                    |CREATE TABLE RatesHistory (
+                    | currency STRING,
+                    | rate INT,
+                    | rowtime TIMESTAMP(3),
+                    | WATERMARK FOR rowtime AS rowtime
+                    |) WITH (
+                    | 'connector' = 'values',
+                    | 'bounded' = 'true'
+                    |)
       """.stripMargin)
 
-    util.addTable(
-      """
-        |CREATE TABLE RatesHistoryWithPK (
-        | currency STRING,
-        | rate INT,
-        | rowtime TIMESTAMP(3),
-        | WATERMARK FOR rowtime AS rowtime,
-        | PRIMARY KEY(currency) NOT ENFORCED
-        |) WITH (
-        | 'connector' = 'values',
-        | 'bounded' = 'true'
-        |)
+    util.addTable("""
+                    |CREATE TABLE RatesHistoryWithPK (
+                    | currency STRING,
+                    | rate INT,
+                    | rowtime TIMESTAMP(3),
+                    | WATERMARK FOR rowtime AS rowtime,
+                    | PRIMARY KEY(currency) NOT ENFORCED
+                    |) WITH (
+                    | 'connector' = 'values',
+                    | 'bounded' = 'true'
+                    |)
       """.stripMargin)
 
-    util.addTable(
-      """
-        |CREATE TABLE RatesOnly (
-        | currency STRING,
-        | rate INT,
-        | proctime AS PROCTIME()
-        |) WITH (
-        | 'connector' = 'values',
-        | 'bounded' = 'true'
-        |)
+    util.addTable("""
+                    |CREATE TABLE RatesOnly (
+                    | currency STRING,
+                    | rate INT,
+                    | proctime AS PROCTIME()
+                    |) WITH (
+                    | 'connector' = 'values',
+                    | 'bounded' = 'true'
+                    |)
       """.stripMargin)
 
     util.addTable(
@@ -101,12 +99,13 @@ class TemporalJoinTest extends TableTestBase {
         "  ) T" +
         "  WHERE rowNum = 1")
 
-    util.addTable("CREATE VIEW rates_last_value AS SELECT currency, LAST_VALUE(rate) AS rate " +
-      "FROM RatesHistory " +
-      "GROUP BY currency ")
+    util.addTable(
+      "CREATE VIEW rates_last_value AS SELECT currency, LAST_VALUE(rate) AS rate " +
+        "FROM RatesHistory " +
+        "GROUP BY currency ")
   }
 
-  @Test(expected = classOf[TableException])
+  @Test
   def testSimpleJoin(): Unit = {
     val sqlQuery = "SELECT " +
       "o_amount * rate as rate " +
@@ -114,10 +113,11 @@ class TemporalJoinTest extends TableTestBase {
       "RatesHistoryWithPK FOR SYSTEM_TIME AS OF o.o_rowtime as r " +
       "on o.o_currency = r.currency"
 
-    util.verifyExecPlan(sqlQuery)
+    assertThatExceptionOfType(classOf[TableException])
+      .isThrownBy(() => util.verifyExecPlan(sqlQuery))
   }
 
-  @Test(expected = classOf[TableException])
+  @Test
   def testSimpleRowtimeVersionedViewJoin(): Unit = {
     val sqlQuery = "SELECT " +
       "o_amount * rate as rate " +
@@ -126,10 +126,11 @@ class TemporalJoinTest extends TableTestBase {
       "FOR SYSTEM_TIME AS OF o.o_rowtime as r1 " +
       "on o.o_currency = r1.currency"
 
-    util.verifyExecPlan(sqlQuery)
+    assertThatExceptionOfType(classOf[TableException])
+      .isThrownBy(() => util.verifyExecPlan(sqlQuery))
   }
 
-  @Test(expected = classOf[TableException])
+  @Test
   def testSimpleProctimeVersionedViewJoin(): Unit = {
     val sqlQuery = "SELECT " +
       "o_amount * rate as rate " +
@@ -138,10 +139,11 @@ class TemporalJoinTest extends TableTestBase {
       "FOR SYSTEM_TIME AS OF o.o_proctime as r1 " +
       "on o.o_currency = r1.currency"
 
-    util.verifyExecPlan(sqlQuery)
+    assertThatExceptionOfType(classOf[TableException])
+      .isThrownBy(() => util.verifyExecPlan(sqlQuery))
   }
 
-  @Test(expected = classOf[TableException])
+  @Test
   def testSimpleViewProcTimeJoin(): Unit = {
 
     val sqlQuery = "SELECT " +
@@ -151,6 +153,7 @@ class TemporalJoinTest extends TableTestBase {
       "FOR SYSTEM_TIME AS OF o.o_proctime as r1 " +
       "on o.o_currency = r1.currency"
 
-    util.verifyExecPlan(sqlQuery)
+    assertThatExceptionOfType(classOf[TableException])
+      .isThrownBy(() => util.verifyExecPlan(sqlQuery))
   }
 }

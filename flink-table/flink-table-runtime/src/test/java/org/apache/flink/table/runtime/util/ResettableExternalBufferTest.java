@@ -27,10 +27,8 @@ import org.apache.flink.table.data.writer.BinaryRowWriter;
 import org.apache.flink.table.runtime.typeutils.BinaryRowDataSerializer;
 
 import org.apache.commons.lang3.RandomStringUtils;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -39,12 +37,11 @@ import java.util.List;
 import java.util.Random;
 
 import static org.apache.flink.runtime.memory.MemoryManager.DEFAULT_PAGE_SIZE;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Test for {@link ResettableExternalBuffer}. */
-public class ResettableExternalBufferTest {
+class ResettableExternalBufferTest {
 
     private static final int MEMORY_SIZE = 1024 * DEFAULT_PAGE_SIZE;
 
@@ -55,10 +52,8 @@ public class ResettableExternalBufferTest {
     private BinaryRowDataSerializer multiColumnFixedLengthSerializer;
     private BinaryRowDataSerializer multiColumnVariableLengthSerializer;
 
-    @Rule public ExpectedException thrown = ExpectedException.none();
-
-    @Before
-    public void before() {
+    @BeforeEach
+    void before() {
         this.memManager = MemoryManagerBuilder.newBuilder().setMemorySize(MEMORY_SIZE).build();
         this.ioManager = new IOManagerAsync();
         this.random = new Random();
@@ -82,14 +77,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testLess() throws Exception {
+    void testLess() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 100;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertEquals(buffer.getSpillChannels().size(), 0);
+        assertThat(0).isEqualTo(buffer.getSpillChannels().size());
 
         // repeat read
         assertBuffer(expected, buffer);
@@ -100,14 +95,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testSpill() throws Exception {
+    void testSpill() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 5000; // 16 * 5000
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // repeat read
         assertBuffer(expected, buffer);
@@ -118,54 +113,54 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testBufferReset() throws Exception {
+    void testBufferReset() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         // less
         insertMulti(buffer, 10);
         buffer.reset();
-        assertEquals(buffer.size(), 0);
+        assertThat(0).isEqualTo(buffer.size());
 
         // not spill
         List<Long> expected = insertMulti(buffer, 100);
-        assertEquals(buffer.size(), 100);
+        assertThat(100).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
         buffer.reset();
 
         // spill
         expected = insertMulti(buffer, 2500);
-        assertEquals(buffer.size(), 2500);
+        assertThat(2500).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
 
         buffer.close();
     }
 
     @Test
-    public void testBufferResetWithSpill() throws Exception {
+    void testBufferResetWithSpill() throws Exception {
         int inMemoryThreshold = 20;
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         // spill
         List<Long> expected = insertMulti(buffer, 2500);
-        assertEquals(buffer.size(), 2500);
+        assertThat(2500).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
         buffer.reset();
 
         // spill, but not read the values
         insertMulti(buffer, 2500);
         buffer.newIterator();
-        assertEquals(buffer.size(), 2500);
+        assertThat(2500).isEqualTo(buffer.size());
         buffer.reset();
 
         // not spill
         expected = insertMulti(buffer, inMemoryThreshold / 2);
         assertBuffer(expected, buffer);
         buffer.reset();
-        assertEquals(buffer.size(), 0);
+        assertThat(0).isEqualTo(buffer.size());
 
         // less
         expected = insertMulti(buffer, 100);
-        assertEquals(buffer.size(), 100);
+        assertThat(100).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
         buffer.reset();
 
@@ -173,8 +168,7 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testHugeRecord() throws Exception {
-        thrown.expect(IOException.class);
+    void testHugeRecord() throws Exception {
         try (ResettableExternalBuffer buffer =
                 new ResettableExternalBuffer(
                         ioManager,
@@ -182,20 +176,24 @@ public class ResettableExternalBufferTest {
                                 this, memManager, 3 * DEFAULT_PAGE_SIZE / memManager.getPageSize()),
                         new BinaryRowDataSerializer(1),
                         false)) {
-            writeHuge(buffer, 10);
-            writeHuge(buffer, 50000);
+            assertThatThrownBy(
+                            () -> {
+                                writeHuge(buffer, 50000);
+                                writeHuge(buffer, 10);
+                            })
+                    .isInstanceOf(IOException.class);
         }
     }
 
     @Test
-    public void testRandomAccessLess() throws Exception {
+    void testRandomAccessLess() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 100;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertEquals(buffer.getSpillChannels().size(), 0);
+        assertThat(0).isEqualTo(buffer.getSpillChannels().size());
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -211,14 +209,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testRandomAccessSpill() throws Exception {
+    void testRandomAccessSpill() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 5000;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -234,7 +232,7 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testBufferResetWithSpillAndRandomAccess() throws Exception {
+    void testBufferResetWithSpillAndRandomAccess() throws Exception {
         final int tries = 100;
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
@@ -242,7 +240,7 @@ public class ResettableExternalBufferTest {
         List<Long> expected;
         for (int i = 0; i < 2; i++) {
             expected = insertMulti(buffer, 2500);
-            assertEquals(buffer.size(), 2500);
+            assertThat(2500).isEqualTo(buffer.size());
             for (int j = 0; j < tries; j++) {
                 assertRandomAccess(expected, buffer);
             }
@@ -252,7 +250,7 @@ public class ResettableExternalBufferTest {
         // spill, but not read the values
         insertMulti(buffer, 2500);
         buffer.newIterator();
-        assertEquals(buffer.size(), 2500);
+        assertThat(2500).isEqualTo(buffer.size());
         buffer.reset();
 
         // not spill
@@ -261,11 +259,11 @@ public class ResettableExternalBufferTest {
             assertRandomAccess(expected, buffer);
         }
         buffer.reset();
-        assertEquals(buffer.size(), 0);
+        assertThat(0).isEqualTo(buffer.size());
 
         // less
         expected = insertMulti(buffer, 100);
-        assertEquals(buffer.size(), 100);
+        assertThat(100).isEqualTo(buffer.size());
         for (int i = 0; i < tries; i++) {
             assertRandomAccess(expected, buffer);
         }
@@ -275,73 +273,72 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testMultiColumnFixedLengthRandomAccessLess() throws Exception {
+    void testMultiColumnFixedLengthRandomAccessLess() throws Exception {
         testMultiColumnRandomAccessLess(
                 multiColumnFixedLengthSerializer, FixedLengthRowData.class, true);
     }
 
     @Test
-    public void testMultiColumnFixedLengthRandomAccessSpill() throws Exception {
+    void testMultiColumnFixedLengthRandomAccessSpill() throws Exception {
         testMultiColumnRandomAccessSpill(
                 multiColumnFixedLengthSerializer, FixedLengthRowData.class, true);
     }
 
     @Test
-    public void testBufferResetWithSpillAndMultiColumnFixedLengthRandomAccess() throws Exception {
+    void testBufferResetWithSpillAndMultiColumnFixedLengthRandomAccess() throws Exception {
         testBufferResetWithSpillAndMultiColumnRandomAccess(
                 multiColumnFixedLengthSerializer, FixedLengthRowData.class, true);
     }
 
     @Test
-    public void testMultiColumnVariableLengthRandomAccessLess() throws Exception {
+    void testMultiColumnVariableLengthRandomAccessLess() throws Exception {
         testMultiColumnRandomAccessLess(
                 multiColumnVariableLengthSerializer, VariableLengthRowData.class, false);
     }
 
     @Test
-    public void testMultiColumnVariableLengthRandomAccessSpill() throws Exception {
+    void testMultiColumnVariableLengthRandomAccessSpill() throws Exception {
         testMultiColumnRandomAccessSpill(
                 multiColumnVariableLengthSerializer, VariableLengthRowData.class, false);
     }
 
     @Test
-    public void testBufferResetWithSpillAndMultiColumnVariableLengthRandomAccess()
-            throws Exception {
+    void testBufferResetWithSpillAndMultiColumnVariableLengthRandomAccess() throws Exception {
         testBufferResetWithSpillAndMultiColumnRandomAccess(
                 multiColumnVariableLengthSerializer, VariableLengthRowData.class, false);
     }
 
     @Test
-    public void testIteratorOnFixedLengthEmptyBuffer() throws Exception {
+    void testIteratorOnFixedLengthEmptyBuffer() throws Exception {
         testIteratorOnMultiColumnEmptyBuffer(multiColumnFixedLengthSerializer, true);
     }
 
     @Test
-    public void testFixedLengthRandomAccessOutOfRange() throws Exception {
+    void testFixedLengthRandomAccessOutOfRange() throws Exception {
         testRandomAccessOutOfRange(
                 multiColumnFixedLengthSerializer, FixedLengthRowData.class, true);
     }
 
     @Test
-    public void testIteratorOnVariableLengthEmptyBuffer() throws Exception {
+    void testIteratorOnVariableLengthEmptyBuffer() throws Exception {
         testIteratorOnMultiColumnEmptyBuffer(multiColumnVariableLengthSerializer, false);
     }
 
     @Test
-    public void testVariableLengthRandomAccessOutOfRange() throws Exception {
+    void testVariableLengthRandomAccessOutOfRange() throws Exception {
         testRandomAccessOutOfRange(
                 multiColumnVariableLengthSerializer, VariableLengthRowData.class, false);
     }
 
     @Test
-    public void testIteratorReset() throws Exception {
+    void testIteratorReset() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 100;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertEquals(buffer.getSpillChannels().size(), 0);
+        assertThat(0).isEqualTo(buffer.getSpillChannels().size());
 
         // reset and read
         ResettableExternalBuffer.BufferIterator iterator = buffer.newIterator();
@@ -354,14 +351,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testIteratorResetWithSpill() throws Exception {
+    void testIteratorResetWithSpill() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 5000; // 16 * 5000
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // reset and read
         ResettableExternalBuffer.BufferIterator iterator = buffer.newIterator();
@@ -374,14 +371,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testIteratorResetWithRandomAccess() throws Exception {
+    void testIteratorResetWithRandomAccess() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 100;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertEquals(buffer.getSpillChannels().size(), 0);
+        assertThat(0).isEqualTo(buffer.getSpillChannels().size());
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -402,14 +399,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testIteratorResetWithRandomAccessSpill() throws Exception {
+    void testIteratorResetWithRandomAccessSpill() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 5000;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -430,14 +427,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testMultipleIteratorsLess() throws Exception {
+    void testMultipleIteratorsLess() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 100;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertEquals(buffer.getSpillChannels().size(), 0);
+        assertThat(0).isEqualTo(buffer.getSpillChannels().size());
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -458,14 +455,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testMultipleIteratorsSpill() throws Exception {
+    void testMultipleIteratorsSpill() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 5000;
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -486,14 +483,14 @@ public class ResettableExternalBufferTest {
     }
 
     @Test
-    public void testMultipleIteratorsWithIteratorReset() throws Exception {
+    void testMultipleIteratorsWithIteratorReset() throws Exception {
         ResettableExternalBuffer buffer = newBuffer(DEFAULT_PAGE_SIZE * 2);
 
         int number = 5000; // 16 * 5000
         List<Long> expected = insertMulti(buffer, number);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertBuffer(expected, buffer);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // reset and read
         ResettableExternalBuffer.BufferIterator iterator1 = buffer.newIterator();
@@ -520,26 +517,48 @@ public class ResettableExternalBufferTest {
         buffer.close();
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testUpdateIteratorFixedLengthLess() throws Exception {
-        testUpdateIteratorLess(multiColumnFixedLengthSerializer, FixedLengthRowData.class, true);
+    @Test
+    void testUpdateIteratorFixedLengthLess() {
+        assertThatThrownBy(
+                        () ->
+                                testUpdateIteratorLess(
+                                        multiColumnFixedLengthSerializer,
+                                        FixedLengthRowData.class,
+                                        true))
+                .isInstanceOf(IllegalStateException.class);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testUpdateIteratorFixedLengthSpill() throws Exception {
-        testUpdateIteratorSpill(multiColumnFixedLengthSerializer, FixedLengthRowData.class, true);
+    @Test
+    void testUpdateIteratorFixedLengthSpill() {
+        assertThatThrownBy(
+                        () ->
+                                testUpdateIteratorSpill(
+                                        multiColumnFixedLengthSerializer,
+                                        FixedLengthRowData.class,
+                                        true))
+                .isInstanceOf(IllegalStateException.class);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testUpdateIteratorVariableLengthLess() throws Exception {
-        testUpdateIteratorLess(
-                multiColumnVariableLengthSerializer, VariableLengthRowData.class, false);
+    @Test
+    void testUpdateIteratorVariableLengthLess() {
+        assertThatThrownBy(
+                        () ->
+                                testUpdateIteratorLess(
+                                        multiColumnVariableLengthSerializer,
+                                        VariableLengthRowData.class,
+                                        false))
+                .isInstanceOf(IllegalStateException.class);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testUpdateIteratorVariableLengthSpill() throws Exception {
-        testUpdateIteratorSpill(
-                multiColumnVariableLengthSerializer, VariableLengthRowData.class, false);
+    @Test
+    void testUpdateIteratorVariableLengthSpill() {
+        assertThatThrownBy(
+                        () ->
+                                testUpdateIteratorSpill(
+                                        multiColumnVariableLengthSerializer,
+                                        VariableLengthRowData.class,
+                                        false))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     private <T extends RowData> void testMultiColumnRandomAccessLess(
@@ -550,8 +569,8 @@ public class ResettableExternalBufferTest {
 
         int number = 30;
         List<RowData> expected = insertMultiColumn(buffer, number, clazz);
-        assertEquals(buffer.size(), number);
-        assertEquals(buffer.getSpillChannels().size(), 0);
+        assertThat(number).isEqualTo(buffer.size());
+        assertThat(0).isEqualTo(buffer.getSpillChannels().size());
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -574,8 +593,8 @@ public class ResettableExternalBufferTest {
 
         int number = 4000;
         List<RowData> expected = insertMultiColumn(buffer, number, clazz);
-        assertEquals(buffer.size(), number);
-        assertTrue(buffer.getSpillChannels().size() > 0);
+        assertThat(number).isEqualTo(buffer.size());
+        assertThat(buffer.getSpillChannels().size()).isGreaterThan(0);
 
         // repeat random access
         List<Integer> beginPos = new ArrayList<>();
@@ -601,7 +620,7 @@ public class ResettableExternalBufferTest {
         List<RowData> expected;
         for (int i = 0; i < 2; i++) {
             expected = insertMultiColumn(buffer, 1500, clazz);
-            assertEquals(buffer.size(), 1500);
+            assertThat(1500).isEqualTo(buffer.size());
             for (int j = 0; j < tries; j++) {
                 assertMultiColumnRandomAccess(expected, buffer);
             }
@@ -611,7 +630,7 @@ public class ResettableExternalBufferTest {
         // spill, but not read the values
         insertMultiColumn(buffer, 1500, clazz);
         buffer.newIterator();
-        assertEquals(buffer.size(), 1500);
+        assertThat(1500).isEqualTo(buffer.size());
         buffer.reset();
 
         // not spill
@@ -620,11 +639,11 @@ public class ResettableExternalBufferTest {
             assertMultiColumnRandomAccess(expected, buffer);
         }
         buffer.reset();
-        assertEquals(buffer.size(), 0);
+        assertThat(0).isEqualTo(buffer.size());
 
         // less
         expected = insertMultiColumn(buffer, 30, clazz);
-        assertEquals(buffer.size(), 30);
+        assertThat(30).isEqualTo(buffer.size());
         for (int i = 0; i < tries; i++) {
             assertMultiColumnRandomAccess(expected, buffer);
         }
@@ -634,16 +653,16 @@ public class ResettableExternalBufferTest {
     }
 
     private void testIteratorOnMultiColumnEmptyBuffer(
-            BinaryRowDataSerializer serializer, boolean isRowAllInFixedPart) throws Exception {
+            BinaryRowDataSerializer serializer, boolean isRowAllInFixedPart) {
         ResettableExternalBuffer buffer =
                 newBuffer(DEFAULT_PAGE_SIZE * 2, serializer, isRowAllInFixedPart);
 
         ResettableExternalBuffer.BufferIterator iterator;
         buffer.complete();
         iterator = buffer.newIterator(0);
-        assertFalse(iterator.advanceNext());
+        assertThat(iterator.advanceNext()).isFalse();
         iterator = buffer.newIterator(random.nextInt(Integer.MAX_VALUE));
-        assertFalse(iterator.advanceNext());
+        assertThat(iterator.advanceNext()).isFalse();
 
         buffer.close();
     }
@@ -656,16 +675,16 @@ public class ResettableExternalBufferTest {
 
         int number = 100;
         List<RowData> expected = insertMultiColumn(buffer, number, clazz);
-        assertEquals(buffer.size(), number);
+        assertThat(number).isEqualTo(buffer.size());
         assertMultiColumnRandomAccess(expected, buffer, 0);
 
         ResettableExternalBuffer.BufferIterator iterator;
         iterator = buffer.newIterator(number);
-        assertFalse(iterator.advanceNext());
+        assertThat(iterator.advanceNext()).isFalse();
         iterator = buffer.newIterator(number + random.nextInt(Integer.MAX_VALUE));
-        assertFalse(iterator.advanceNext());
+        assertThat(iterator.advanceNext()).isFalse();
         iterator = buffer.newIterator(random.nextInt(number));
-        assertTrue(iterator.advanceNext());
+        assertThat(iterator.advanceNext()).isTrue();
 
         buffer.close();
     }
@@ -692,11 +711,11 @@ public class ResettableExternalBufferTest {
             expected.add(data);
 
             for (ResettableExternalBuffer.BufferIterator iterator : iterators) {
-                assertTrue(iterator.advanceNext());
+                assertThat(iterator.advanceNext()).isTrue();
                 BinaryRowData row = iterator.getRow();
                 data.checkSame(row);
 
-                assertFalse(iterator.advanceNext());
+                assertThat(iterator.advanceNext()).isFalse();
             }
         }
 
@@ -706,7 +725,7 @@ public class ResettableExternalBufferTest {
 
         for (int i = 0; i < number; i++) {
             for (ResettableExternalBuffer.BufferIterator iterator : iterators) {
-                assertTrue(iterator.advanceNext());
+                assertThat(iterator.advanceNext()).isTrue();
                 BinaryRowData row = iterator.getRow();
                 expected.get(i).checkSame(row);
             }
@@ -750,13 +769,13 @@ public class ResettableExternalBufferTest {
 
             for (int j = 0; j < step; j++) {
                 for (ResettableExternalBuffer.BufferIterator iterator : iterators) {
-                    assertTrue(iterator.advanceNext());
+                    assertThat(iterator.advanceNext()).isTrue();
                     BinaryRowData row = iterator.getRow();
                     smallExpected.get(j).checkSame(row);
                 }
             }
             for (ResettableExternalBuffer.BufferIterator iterator : iterators) {
-                assertFalse(iterator.advanceNext());
+                assertThat(iterator.advanceNext()).isFalse();
             }
         }
 
@@ -766,7 +785,7 @@ public class ResettableExternalBufferTest {
 
         for (int i = 0; i < number * step; i++) {
             for (ResettableExternalBuffer.BufferIterator iterator : iterators) {
-                assertTrue(iterator.advanceNext());
+                assertThat(iterator.advanceNext()).isTrue();
                 BinaryRowData row = iterator.getRow();
                 expected.get(i).checkSame(row);
             }
@@ -802,7 +821,7 @@ public class ResettableExternalBufferTest {
         while (iterator.advanceNext()) {
             values.add(iterator.getRow().getLong(0));
         }
-        assertEquals(expected, values);
+        assertThat(values).isEqualTo(expected);
     }
 
     private List<Long> insertMulti(ResettableExternalBuffer buffer, int cnt) throws IOException {
@@ -848,7 +867,7 @@ public class ResettableExternalBufferTest {
         while (iterator.advanceNext()) {
             values.add(iterator.getRow().getLong(0));
         }
-        assertEquals(expected.subList(begin, expected.size()), values);
+        assertThat(values).isEqualTo(expected.subList(begin, expected.size()));
     }
 
     private <T extends RowData> List<RowData> insertMultiColumn(
@@ -881,7 +900,7 @@ public class ResettableExternalBufferTest {
             List<RowData> expected, ResettableExternalBuffer buffer, int begin) {
         ResettableExternalBuffer.BufferIterator iterator = buffer.newIterator(begin);
         for (int i = begin; i < buffer.size(); i++) {
-            assertTrue(iterator.advanceNext());
+            assertThat(iterator.advanceNext()).isTrue();
             expected.get(i).checkSame(iterator.getRow());
         }
     }
@@ -893,13 +912,12 @@ public class ResettableExternalBufferTest {
     }
 
     private static class FixedLengthRowData implements RowData {
-        private boolean col0;
-        private long col1;
-        private int col2;
-        private Random random;
+        private final boolean col0;
+        private final long col1;
+        private final int col2;
 
         FixedLengthRowData() {
-            random = new Random();
+            Random random = new Random();
             col0 = random.nextBoolean();
             col1 = random.nextLong();
             col2 = random.nextInt();
@@ -919,22 +937,21 @@ public class ResettableExternalBufferTest {
 
         @Override
         public void checkSame(BinaryRowData row) {
-            assertEquals(col0, row.getBoolean(0));
-            assertEquals(col1, row.getLong(1));
-            assertEquals(col2, row.getInt(2));
+            assertThat(row.getBoolean(0)).isEqualTo(col0);
+            assertThat(row.getLong(1)).isEqualTo(col1);
+            assertThat(row.getInt(2)).isEqualTo(col2);
         }
     }
 
     private static class VariableLengthRowData implements RowData {
-        private boolean col0;
-        private long col1;
-        private StringData col2;
-        private int col3;
-        private StringData col4;
-        private Random random;
+        private final boolean col0;
+        private final long col1;
+        private final StringData col2;
+        private final int col3;
+        private final StringData col4;
 
         public VariableLengthRowData() {
-            random = new Random();
+            Random random = new Random();
             col0 = random.nextBoolean();
             col1 = random.nextLong();
             col2 = StringData.fromString(RandomStringUtils.random(random.nextInt(50) + 1));
@@ -958,11 +975,11 @@ public class ResettableExternalBufferTest {
 
         @Override
         public void checkSame(BinaryRowData row) {
-            assertEquals(col0, row.getBoolean(0));
-            assertEquals(col1, row.getLong(1));
-            assertEquals(col2, row.getString(2));
-            assertEquals(col3, row.getInt(3));
-            assertEquals(col4, row.getString(4));
+            assertThat(row.getBoolean(0)).isEqualTo(col0);
+            assertThat(row.getLong(1)).isEqualTo(col1);
+            assertThat(row.getString(2)).isEqualTo(col2);
+            assertThat(row.getInt(3)).isEqualTo(col3);
+            assertThat(row.getString(4)).isEqualTo(col4);
         }
     }
 }

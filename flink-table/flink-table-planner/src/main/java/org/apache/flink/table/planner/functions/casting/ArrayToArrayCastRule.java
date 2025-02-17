@@ -20,8 +20,8 @@ package org.apache.flink.table.planner.functions.casting;
 
 import org.apache.flink.table.data.ArrayData;
 import org.apache.flink.table.data.GenericArrayData;
+import org.apache.flink.table.planner.codegen.CodeGenUtils;
 import org.apache.flink.table.types.logical.ArrayType;
-import org.apache.flink.table.types.logical.DistinctType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
 
@@ -68,7 +68,7 @@ class ArrayToArrayCastRule extends AbstractNullAwareCodeGeneratorCastRule<ArrayD
 
         final String innerTargetTypeTerm = arrayElementType(innerTargetType);
         final String arraySize = methodCall(inputTerm, "size");
-        final String objArrayTerm = newName("objArray");
+        final String objArrayTerm = newName(context.getCodeGeneratorContext(), "objArray");
 
         return new CastRuleUtils.CodeWriter()
                 .declStmt(
@@ -102,37 +102,16 @@ class ArrayToArrayCastRule extends AbstractNullAwareCodeGeneratorCastRule<ArrayD
                                         .assignArrayStmt(
                                                 objArrayTerm, index, codeBlock.getReturnTerm());
                             }
-                        })
+                        },
+                        context.getCodeGeneratorContext())
                 .assignStmt(returnVariable, constructorCall(GenericArrayData.class, objArrayTerm))
                 .toString();
     }
 
     private static String arrayElementType(LogicalType t) {
         if (t.isNullable()) {
-            return "Object";
+            return CodeGenUtils.boxedTypeTermForType(t);
         }
-        switch (t.getTypeRoot()) {
-            case BOOLEAN:
-                return "boolean";
-            case TINYINT:
-                return "byte";
-            case SMALLINT:
-                return "short";
-            case INTEGER:
-            case DATE:
-            case TIME_WITHOUT_TIME_ZONE:
-            case INTERVAL_YEAR_MONTH:
-                return "int";
-            case BIGINT:
-            case INTERVAL_DAY_TIME:
-                return "long";
-            case FLOAT:
-                return "float";
-            case DOUBLE:
-                return "double";
-            case DISTINCT_TYPE:
-                return arrayElementType(((DistinctType) t).getSourceType());
-        }
-        return "Object";
+        return CodeGenUtils.primitiveTypeTermForType(t);
     }
 }

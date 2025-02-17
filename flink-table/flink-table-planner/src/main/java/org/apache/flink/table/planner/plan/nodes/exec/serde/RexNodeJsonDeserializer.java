@@ -27,6 +27,7 @@ import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.functions.FunctionIdentifier;
 import org.apache.flink.table.functions.UserDefinedFunction;
 import org.apache.flink.table.functions.UserDefinedFunctionHelper;
+import org.apache.flink.table.planner.calcite.RexTableArgCall;
 import org.apache.flink.table.planner.functions.bridging.BridgingSqlAggFunction;
 import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction;
 import org.apache.flink.table.planner.functions.sql.BuiltInSqlOperator;
@@ -45,9 +46,12 @@ import org.apache.calcite.rel.core.CorrelationId;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexUnknownAs;
 import org.apache.calcite.sql.SqlIdentifier;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlSyntax;
+import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlNameMatchers;
@@ -88,9 +92,13 @@ import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSe
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_INTERNAL_NAME;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_KIND;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_NAME;
+import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_NULL_AS;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_OPERANDS;
+import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_ORDER_KEYS;
+import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_PARTITION_KEYS;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_RANGES;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_SARG;
+import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_SQL_KIND;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_SYMBOL;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_SYNTAX;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.FIELD_NAME_SYSTEM_NAME;
@@ -102,6 +110,7 @@ import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSe
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.KIND_INPUT_REF;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.KIND_LITERAL;
 import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.KIND_PATTERN_INPUT_REF;
+import static org.apache.flink.table.planner.plan.nodes.exec.serde.RexNodeJsonSerializer.KIND_TABLE_ARG_CALL;
 import static org.apache.flink.table.planner.typeutils.SymbolUtil.serializableToCalcite;
 
 /**
@@ -139,6 +148,8 @@ final class RexNodeJsonDeserializer extends StdDeserializer<RexNode> {
                 return deserializeCorrelVariable(jsonNode, serdeContext);
             case KIND_PATTERN_INPUT_REF:
                 return deserializePatternFieldRef(jsonNode, serdeContext);
+            case KIND_TABLE_ARG_CALL:
+                return deserializeTableArgCall(jsonNode, serdeContext);
             case KIND_CALL:
                 return deserializeCall(jsonNode, serdeContext);
             default:
@@ -214,9 +225,18 @@ final class RexNodeJsonDeserializer extends StdDeserializer<RexNode> {
                 builder.add(range);
             }
         }
-        final boolean containsNull = sargNode.required(FIELD_NAME_CONTAINS_NULL).booleanValue();
-        return rexBuilder.makeSearchArgumentLiteral(
-                Sarg.of(containsNull, builder.build()), relDataType);
+        // TODO: Since 1.18.0 nothing is serialized to FIELD_NAME_CONTAINS_NULL.
+        // This if condition (should be removed in future) is required for backward compatibility
+        // with Flink 1.17.x where FIELD_NAME_CONTAINS_NULL is still used.
+        final JsonNode containsNull = sargNode.get(FIELD_NAME_CONTAINS_NULL);
+        if (containsNull != null) {
+            return rexBuilder.makeSearchArgumentLiteral(
+                    Sarg.of(containsNull.booleanValue(), builder.build()), relDataType);
+        }
+        final RexUnknownAs nullAs =
+                serializableToCalcite(
+                        RexUnknownAs.class, sargNode.required(FIELD_NAME_NULL_AS).asText());
+        return rexBuilder.makeSearchArgumentLiteral(Sarg.of(nullAs, builder.build()), relDataType);
     }
 
     private static @Nullable Object deserializeLiteralValue(
@@ -299,6 +319,28 @@ final class RexNodeJsonDeserializer extends StdDeserializer<RexNode> {
         return serdeContext.getRexBuilder().makePatternFieldRef(alpha, fieldType, inputIndex);
     }
 
+    private static RexNode deserializeTableArgCall(JsonNode jsonNode, SerdeContext serdeContext) {
+        final JsonNode logicalTypeNode = jsonNode.required(FIELD_NAME_TYPE);
+        final RelDataType callType =
+                RelDataTypeJsonDeserializer.deserialize(logicalTypeNode, serdeContext);
+
+        final int inputIndex = jsonNode.required(FIELD_NAME_INPUT_INDEX).intValue();
+
+        final JsonNode partitionKeysNode = jsonNode.required(FIELD_NAME_PARTITION_KEYS);
+        final int[] partitionKeys = new int[partitionKeysNode.size()];
+        for (int i = 0; i < partitionKeysNode.size(); ++i) {
+            partitionKeys[i] = partitionKeysNode.get(i).asInt();
+        }
+
+        final JsonNode orderKeysNode = jsonNode.required(FIELD_NAME_ORDER_KEYS);
+        final int[] orderKeys = new int[orderKeysNode.size()];
+        for (int i = 0; i < orderKeysNode.size(); ++i) {
+            orderKeys[i] = orderKeysNode.get(i).asInt();
+        }
+
+        return new RexTableArgCall(callType, inputIndex, partitionKeys, orderKeys);
+    }
+
     private static RexNode deserializeCall(JsonNode jsonNode, SerdeContext serdeContext)
             throws IOException {
         final SqlOperator operator = deserializeSqlOperator(jsonNode, serdeContext);
@@ -340,6 +382,9 @@ final class RexNodeJsonDeserializer extends StdDeserializer<RexNode> {
         } else if (jsonNode.has(FIELD_NAME_SYSTEM_NAME)) {
             return deserializeSystemFunction(
                     jsonNode.required(FIELD_NAME_SYSTEM_NAME).asText(), syntax, serdeContext);
+        } else if (jsonNode.has(FIELD_NAME_SQL_KIND)) {
+            return deserializeInternalFunction(
+                    syntax, SqlKind.valueOf(jsonNode.get(FIELD_NAME_SQL_KIND).asText()));
         } else {
             throw new TableException("Invalid function call.");
         }
@@ -375,11 +420,31 @@ final class RexNodeJsonDeserializer extends StdDeserializer<RexNode> {
         if (latestOperator.isPresent()) {
             return latestOperator.get();
         }
+
+        Optional<SqlOperator> sqlStdOperator =
+                lookupOptionalSqlStdOperator(publicName, syntax, null);
+        if (sqlStdOperator.isPresent()) {
+            return sqlStdOperator.get();
+        }
+
         throw new TableException(
                 String.format(
                         "Could not resolve internal system function '%s'. "
                                 + "This is a bug, please file an issue.",
                         internalName));
+    }
+
+    private static SqlOperator deserializeInternalFunction(SqlSyntax syntax, SqlKind sqlKind) {
+        final Optional<SqlOperator> stdOperator = lookupOptionalSqlStdOperator("", syntax, sqlKind);
+        if (stdOperator.isPresent()) {
+            return stdOperator.get();
+        }
+
+        throw new TableException(
+                String.format(
+                        "Could not resolve internal system function '%s'. "
+                                + "This is a bug, please file an issue.",
+                        sqlKind.name()));
     }
 
     private static SqlOperator deserializeFunctionClass(
@@ -504,6 +569,26 @@ final class RexNodeJsonDeserializer extends StdDeserializer<RexNode> {
             }
             return Optional.empty();
         }
+    }
+
+    private static Optional<SqlOperator> lookupOptionalSqlStdOperator(
+            String operatorName, SqlSyntax syntax, @Nullable SqlKind sqlKind) {
+        List<SqlOperator> foundOperators = new ArrayList<>();
+        // try to find operator from std operator table.
+        SqlStdOperatorTable.instance()
+                .lookupOperatorOverloads(
+                        new SqlIdentifier(operatorName, new SqlParserPos(0, 0)),
+                        null, // category
+                        syntax,
+                        foundOperators,
+                        SqlNameMatchers.liberal());
+        if (foundOperators.size() == 1) {
+            return Optional.of(foundOperators.get(0));
+        }
+        // in case different operator has the same kind, check with both name and kind.
+        return foundOperators.stream()
+                .filter(o -> sqlKind != null && o.getKind() == sqlKind)
+                .findFirst();
     }
 
     private static TableException missingSystemFunction(String systemName) {

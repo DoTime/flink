@@ -67,10 +67,10 @@ public class HiveReflectionUtils {
         }
     }
 
-    public static ObjectInspector createConstantObjectInspector(String className, Object value) {
+    public static ObjectInspector createConstantObjectInspector(
+            String className, Class<?> valueClz, Object value) {
         try {
-            Constructor<?> method =
-                    Class.forName(className).getDeclaredConstructor(value.getClass());
+            Constructor<?> method = Class.forName(className).getDeclaredConstructor(valueClz);
             method.setAccessible(true);
             return (ObjectInspector) method.newInstance(value);
         } catch (ClassNotFoundException
@@ -97,7 +97,11 @@ public class HiveReflectionUtils {
 
     public static Class tryGetClass(String name) {
         try {
-            return Thread.currentThread().getContextClassLoader().loadClass(name);
+            // we use the classloader of HiveReflectionUtils to load the class
+            // since the current class to be loaded via this method should be loaded by the
+            // classloader(which is PlannerComponentClassLoader in
+            // org.apache.flink.table.planner.loader).
+            return HiveReflectionUtils.class.getClassLoader().loadClass(name);
         } catch (ClassNotFoundException e) {
             return null;
         }

@@ -20,20 +20,17 @@ package org.apache.flink.test.checkpointing;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
-import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Deadline;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.common.typeutils.base.IntSerializer;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.client.program.ClusterClient;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.NettyShuffleEnvironmentOptions;
 import org.apache.flink.configuration.StateBackendOptions;
 import org.apache.flink.core.execution.SavepointFormatType;
 import org.apache.flink.runtime.client.JobExecutionException;
@@ -49,15 +46,19 @@ import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.checkpoint.ListCheckpointed;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.DiscardingSink;
-import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.streaming.api.functions.source.RichParallelSourceFunction;
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import org.apache.flink.streaming.api.functions.sink.legacy.SinkFunction;
+import org.apache.flink.streaming.api.functions.sink.v2.DiscardingSink;
+import org.apache.flink.streaming.api.functions.source.legacy.RichParallelSourceFunction;
+import org.apache.flink.streaming.api.functions.source.legacy.SourceFunction;
+import org.apache.flink.streaming.util.RestartStrategyUtils;
 import org.apache.flink.test.util.MiniClusterWithClientResource;
 import org.apache.flink.testutils.TestingUtils;
+import org.apache.flink.testutils.executor.TestExecutorResource;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.TestLogger;
+import org.apache.flink.util.concurrent.FixedRetryStrategy;
 import org.apache.flink.util.concurrent.FutureUtils;
+import org.apache.flink.util.concurrent.ScheduledExecutorServiceAdapter;
 
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -79,6 +80,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -91,26 +93,24 @@ import static org.junit.Assert.assertTrue;
 @RunWith(Parameterized.class)
 public class RescalingITCase extends TestLogger {
 
+    @ClassRule
+    public static final TestExecutorResource<ScheduledExecutorService> EXECUTOR_RESOURCE =
+            TestingUtils.defaultExecutorResource();
+
     private static final int numTaskManagers = 2;
     private static final int slotsPerTaskManager = 2;
     private static final int numSlots = numTaskManagers * slotsPerTaskManager;
 
-    @Parameterized.Parameters(name = "backend = {0}, buffersPerChannel = {1}")
+    @Parameterized.Parameters(name = "backend = {0}")
     public static Collection<Object[]> data() {
-        return Arrays.asList(
-                new Object[][] {
-                    {"filesystem", 2}, {"rocksdb", 0}, {"filesystem", 0}, {"rocksdb", 2}
-                });
+        return Arrays.asList(new Object[][] {{"hashmap"}, {"rocksdb"}});
     }
 
-    public RescalingITCase(String backend, int buffersPerChannel) {
+    public RescalingITCase(String backend) {
         this.backend = backend;
-        this.buffersPerChannel = buffersPerChannel;
     }
 
     private final String backend;
-
-    private final int buffersPerChannel;
 
     private String currentBackend = null;
 
@@ -138,13 +138,10 @@ public class RescalingITCase extends TestLogger {
             final File checkpointDir = temporaryFolder.newFolder();
             final File savepointDir = temporaryFolder.newFolder();
 
-            config.setString(StateBackendOptions.STATE_BACKEND, currentBackend);
-            config.setString(
+            config.set(StateBackendOptions.STATE_BACKEND, currentBackend);
+            config.set(
                     CheckpointingOptions.CHECKPOINTS_DIRECTORY, checkpointDir.toURI().toString());
-            config.setString(
-                    CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir.toURI().toString());
-            config.setInteger(
-                    NettyShuffleEnvironmentOptions.NETWORK_BUFFERS_PER_CHANNEL, buffersPerChannel);
+            config.set(CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir.toURI().toString());
 
             cluster =
                     new MiniClusterWithClientResource(
@@ -555,10 +552,11 @@ public class RescalingITCase extends TestLogger {
                             () ->
                                     client.triggerSavepoint(
                                             jobID, null, SavepointFormatType.CANONICAL),
-                            (int) deadline.timeLeft().getSeconds() / 10,
-                            Time.seconds(10),
+                            new FixedRetryStrategy(
+                                    (int) deadline.timeLeft().getSeconds() / 10,
+                                    Duration.ofSeconds(10)),
                             (throwable) -> true,
-                            TestingUtils.defaultScheduledExecutor());
+                            new ScheduledExecutorServiceAdapter(EXECUTOR_RESOURCE.getExecutor()));
 
             final String savepointPath =
                     savepointPathFuture.get(deadline.timeLeft().toMillis(), TimeUnit.MILLISECONDS);
@@ -623,7 +621,7 @@ public class RescalingITCase extends TestLogger {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(parallelism);
         env.getConfig().setMaxParallelism(maxParallelism);
-        env.setRestartStrategy(RestartStrategies.noRestart());
+        RestartStrategyUtils.configureNoRestartStrategy(env);
 
         StateSourceBase.workStartedLatch = new CountDownLatch(parallelism);
 
@@ -648,7 +646,7 @@ public class RescalingITCase extends TestLogger {
 
         DataStream<Integer> input = env.addSource(src);
 
-        input.addSink(new DiscardingSink<Integer>());
+        input.sinkTo(new DiscardingSink<>());
 
         return env.getStreamGraph().getJobGraph();
     }
@@ -667,7 +665,7 @@ public class RescalingITCase extends TestLogger {
             env.getConfig().setMaxParallelism(maxParallelism);
         }
         env.enableCheckpointing(checkpointingInterval);
-        env.setRestartStrategy(RestartStrategies.noRestart());
+        RestartStrategyUtils.configureNoRestartStrategy(env);
         env.getConfig().setUseSnapshotCompression(true);
 
         DataStream<Integer> input =
@@ -708,7 +706,7 @@ public class RescalingITCase extends TestLogger {
         env.setParallelism(parallelism);
         env.getConfig().setMaxParallelism(maxParallelism);
         env.enableCheckpointing(checkpointingInterval);
-        env.setRestartStrategy(RestartStrategies.noRestart());
+        RestartStrategyUtils.configureNoRestartStrategy(env);
 
         DataStream<Integer> input =
                 env.addSource(
@@ -758,7 +756,7 @@ public class RescalingITCase extends TestLogger {
         @Override
         public void run(SourceContext<Integer> ctx) throws Exception {
             final Object lock = ctx.getCheckpointLock();
-            final int subtaskIndex = getRuntimeContext().getIndexOfThisSubtask();
+            final int subtaskIndex = getRuntimeContext().getTaskInfo().getIndexOfThisSubtask();
 
             while (running) {
 
@@ -766,7 +764,10 @@ public class RescalingITCase extends TestLogger {
                     synchronized (lock) {
                         for (int value = subtaskIndex;
                                 value < numberKeys;
-                                value += getRuntimeContext().getNumberOfParallelSubtasks()) {
+                                value +=
+                                        getRuntimeContext()
+                                                .getTaskInfo()
+                                                .getNumberOfParallelSubtasks()) {
 
                             ctx.collect(value);
                         }
@@ -842,7 +843,8 @@ public class RescalingITCase extends TestLogger {
             sum.update(s);
 
             if (count % numberElements == 0) {
-                out.collect(Tuple2.of(getRuntimeContext().getIndexOfThisSubtask(), s));
+                out.collect(
+                        Tuple2.of(getRuntimeContext().getTaskInfo().getIndexOfThisSubtask(), s));
                 workCompletedLatch.countDown();
             }
         }
@@ -953,7 +955,8 @@ public class RescalingITCase extends TestLogger {
         @Override
         public List<Integer> snapshotState(long checkpointId, long timestamp) throws Exception {
 
-            checkCorrectSnapshot[getRuntimeContext().getIndexOfThisSubtask()] = counter;
+            checkCorrectSnapshot[getRuntimeContext().getTaskInfo().getIndexOfThisSubtask()] =
+                    counter;
 
             int div = counter / NUM_PARTITIONS;
             int mod = counter % NUM_PARTITIONS;
@@ -975,7 +978,8 @@ public class RescalingITCase extends TestLogger {
             for (Integer v : state) {
                 counter += v;
             }
-            checkCorrectRestore[getRuntimeContext().getIndexOfThisSubtask()] = counter;
+            checkCorrectRestore[getRuntimeContext().getTaskInfo().getIndexOfThisSubtask()] =
+                    counter;
         }
     }
 
@@ -1000,7 +1004,8 @@ public class RescalingITCase extends TestLogger {
 
             counterPartitions.clear();
 
-            checkCorrectSnapshot[getRuntimeContext().getIndexOfThisSubtask()] = counter;
+            checkCorrectSnapshot[getRuntimeContext().getTaskInfo().getIndexOfThisSubtask()] =
+                    counter;
 
             int div = counter / NUM_PARTITIONS;
             int mod = counter % NUM_PARTITIONS;
@@ -1036,7 +1041,8 @@ public class RescalingITCase extends TestLogger {
                 for (int v : counterPartitions.get()) {
                     counter += v;
                 }
-                checkCorrectRestore[getRuntimeContext().getIndexOfThisSubtask()] = counter;
+                checkCorrectRestore[getRuntimeContext().getTaskInfo().getIndexOfThisSubtask()] =
+                        counter;
             }
         }
     }
