@@ -18,22 +18,27 @@
 package org.apache.flink.table.planner.plan.utils
 
 import org.apache.flink.table.api.ValidationException
+import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory.{isProctimeIndicatorType, isRowtimeIndicatorType}
-import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalJoin
 import org.apache.flink.table.planner.plan.nodes.exec.spec.JoinSpec
+import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalJoin
+import org.apache.flink.table.runtime.types.PlannerTypeUtils
 import org.apache.flink.util.Preconditions.checkState
 
-import org.apache.calcite.rel.core.{JoinInfo, JoinRelType}
+import org.apache.calcite.rel.`type`.RelDataType
 import org.apache.calcite.rel.RelNode
+import org.apache.calcite.rel.core.{JoinInfo, JoinRelType}
 import org.apache.calcite.rex._
 import org.apache.calcite.sql.`type`.{OperandTypes, ReturnTypes}
 import org.apache.calcite.sql.{SqlFunction, SqlFunctionCategory, SqlKind}
+import org.apache.calcite.sql.fun.SqlStdOperatorTable
+import org.apache.calcite.util.mapping.IntPair
 
 import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
+import scala.collection.mutable
 
-/**
-  * Utilities for temporal join.
-  */
+/** Utilities for temporal join. */
 object TemporalJoinUtil {
 
   // ----------------------------------------------------------------------------------------
@@ -41,24 +46,24 @@ object TemporalJoinUtil {
   // ----------------------------------------------------------------------------------------
 
   /**
-    * [[TEMPORAL_JOIN_CONDITION]] is a specific join condition which correctly defines
-    * references to rightTimeAttribute, rightPrimaryKeyExpression and leftTimeAttribute.
-    * The condition is used to mark this is a temporal table join and ensure columns these
-    * expressions depends on will not be pruned.
-    *
-    * The join key pair is necessary for temporal table join to ensure the
-    * the condition will not be pushed down.
-    *
-    * The rightTimeAttribute, rightPrimaryKeyExpression and leftTimeAttribute will be
-    * extracted from the condition in physical phase.
-    */
+   * [[TEMPORAL_JOIN_CONDITION]] is a specific join condition which correctly defines references to
+   * rightTimeAttribute, rightPrimaryKeyExpression and leftTimeAttribute. The condition is used to
+   * mark this is a temporal table join and ensure columns these expressions depends on will not be
+   * pruned.
+   *
+   * The join key pair is necessary for temporal table join to ensure the condition will not be
+   * pushed down.
+   *
+   * The rightTimeAttribute, rightPrimaryKeyExpression and leftTimeAttribute will be extracted from
+   * the condition in physical phase.
+   */
   val TEMPORAL_JOIN_CONDITION = new SqlFunction(
     "__TEMPORAL_JOIN_CONDITION",
     SqlKind.OTHER_FUNCTION,
     ReturnTypes.BOOLEAN_NOT_NULL,
     null,
     OperandTypes.or(
-      /**------------------------ Temporal table join condition ------------------------**/
+      /** ------------------------ Temporal table join condition ------------------------* */
       // right time attribute and primary key are required in event-time temporal table join,
       OperandTypes.sequence(
         "'(LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, PRIMARY_KEY, LEFT_KEY, RIGHT_KEY)'",
@@ -66,7 +71,8 @@ object TemporalJoinUtil {
         OperandTypes.DATETIME,
         OperandTypes.ANY,
         OperandTypes.ANY,
-        OperandTypes.ANY),
+        OperandTypes.ANY
+      ),
       // right primary key is required for processing-time temporal table join
       OperandTypes.sequence(
         "'(LEFT_TIME_ATTRIBUTE, PRIMARY_KEY, LEFT_KEY, RIGHT_KEY)'",
@@ -74,7 +80,7 @@ object TemporalJoinUtil {
         OperandTypes.ANY,
         OperandTypes.ANY,
         OperandTypes.ANY),
-      /**------------------ Temporal table function join condition ---------------------**/
+      /** ------------------ Temporal table function join condition ---------------------* */
       // Event-time temporal function join condition
       OperandTypes.sequence(
         "'(LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, PRIMARY_KEY)'",
@@ -85,12 +91,13 @@ object TemporalJoinUtil {
       OperandTypes.sequence(
         "'(LEFT_TIME_ATTRIBUTE, PRIMARY_KEY)'",
         OperandTypes.DATETIME,
-        OperandTypes.ANY)),
+        OperandTypes.ANY)
+    ),
     SqlFunctionCategory.SYSTEM)
 
   /**
-   * Initial temporal condition used in rewrite phase of logical plan, this condition will
-   * be replaced with [[TEMPORAL_JOIN_CONDITION]] after the primary key inferred.
+   * Initial temporal condition used in rewrite phase of logical plan, this condition will be
+   * replaced with [[TEMPORAL_JOIN_CONDITION]] after the primary key inferred.
    */
   val INITIAL_TEMPORAL_JOIN_CONDITION = new SqlFunction(
     "__INITIAL_TEMPORAL_JOIN_CONDITION",
@@ -110,9 +117,9 @@ object TemporalJoinUtil {
         "'(LEFT_TIME_ATTRIBUTE, LEFT_KEY, RIGHT_KEY)'",
         OperandTypes.DATETIME,
         OperandTypes.ANY,
-        OperandTypes.ANY)),
+        OperandTypes.ANY)
+    ),
     SqlFunctionCategory.SYSTEM)
-
 
   val TEMPORAL_JOIN_LEFT_KEY = new SqlFunction(
     "__TEMPORAL_JOIN_LEFT_KEY",
@@ -137,29 +144,19 @@ object TemporalJoinUtil {
     null,
     OperandTypes.ARRAY,
     SqlFunctionCategory.SYSTEM)
-  
+
   private def makePrimaryKeyCall(
       rexBuilder: RexBuilder,
       rightPrimaryKeyExpression: Seq[RexNode]): RexNode = {
-    rexBuilder.makeCall(
-      TEMPORAL_JOIN_CONDITION_PRIMARY_KEY,
-      rightPrimaryKeyExpression)
+    rexBuilder.makeCall(TEMPORAL_JOIN_CONDITION_PRIMARY_KEY, rightPrimaryKeyExpression)
   }
 
-  private def makeLeftJoinKeyCall(
-      rexBuilder: RexBuilder,
-      keyExpression: Seq[RexNode]): RexNode = {
-    rexBuilder.makeCall(
-      TEMPORAL_JOIN_LEFT_KEY,
-      keyExpression)
+  private def makeLeftJoinKeyCall(rexBuilder: RexBuilder, keyExpression: Seq[RexNode]): RexNode = {
+    rexBuilder.makeCall(TEMPORAL_JOIN_LEFT_KEY, keyExpression)
   }
 
-  private def makeRightJoinKeyCall(
-      rexBuilder: RexBuilder,
-      keyExpression: Seq[RexNode]): RexNode = {
-    rexBuilder.makeCall(
-      TEMPORAL_JOIN_RIGHT_KEY,
-      keyExpression)
+  private def makeRightJoinKeyCall(rexBuilder: RexBuilder, keyExpression: Seq[RexNode]): RexNode = {
+    rexBuilder.makeCall(TEMPORAL_JOIN_RIGHT_KEY, keyExpression)
   }
 
   def makeProcTimeTemporalFunctionJoinConCall(
@@ -167,9 +164,9 @@ object TemporalJoinUtil {
       leftTimeAttribute: RexNode,
       rightPrimaryKeyExpression: RexNode): RexNode = {
     rexBuilder.makeCall(
-        TEMPORAL_JOIN_CONDITION,
-        leftTimeAttribute,
-        makePrimaryKeyCall(rexBuilder, Array(rightPrimaryKeyExpression)))
+      TEMPORAL_JOIN_CONDITION,
+      leftTimeAttribute,
+      makePrimaryKeyCall(rexBuilder, Array(rightPrimaryKeyExpression)))
   }
 
   def makeRowTimeTemporalFunctionJoinConCall(
@@ -195,7 +192,8 @@ object TemporalJoinUtil {
       leftTimeAttribute,
       rightTimeAttribute,
       makeLeftJoinKeyCall(rexBuilder, leftJoinKeyExpression),
-      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression))
+      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression)
+    )
   }
 
   def makeRowTimeTemporalTableJoinConCall(
@@ -211,7 +209,8 @@ object TemporalJoinUtil {
       rightTimeAttribute,
       makePrimaryKeyCall(rexBuilder, rightPrimaryKeyExpression),
       makeLeftJoinKeyCall(rexBuilder, leftJoinKeyExpression),
-      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression))
+      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression)
+    )
   }
 
   def makeInitialProcTimeTemporalTableJoinConCall(
@@ -223,7 +222,8 @@ object TemporalJoinUtil {
       INITIAL_TEMPORAL_JOIN_CONDITION,
       leftTimeAttribute,
       makeLeftJoinKeyCall(rexBuilder, leftJoinKeyExpression),
-      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression))
+      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression)
+    )
   }
 
   def makeProcTimeTemporalTableJoinConCall(
@@ -237,16 +237,17 @@ object TemporalJoinUtil {
       leftTimeAttribute,
       makePrimaryKeyCall(rexBuilder, rightPrimaryKeyExpression),
       makeLeftJoinKeyCall(rexBuilder, leftJoinKeyExpression),
-      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression))
+      makeRightJoinKeyCall(rexBuilder, rightJoinKeyExpression)
+    )
   }
 
   def isInitialRowTimeTemporalTableJoin(rexCall: RexCall): Boolean = {
-    //(LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, LEFT_KEY, RIGHT_KEY)
+    // (LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, LEFT_KEY, RIGHT_KEY)
     rexCall.getOperator == INITIAL_TEMPORAL_JOIN_CONDITION && rexCall.operands.length == 4
   }
 
   def isInitialProcTimeTemporalTableJoin(rexCall: RexCall): Boolean = {
-    //(LEFT_TIME_ATTRIBUTE, LEFT_KEY, RIGHT_KEY)
+    // (LEFT_TIME_ATTRIBUTE, LEFT_KEY, RIGHT_KEY)
     rexCall.getOperator == INITIAL_TEMPORAL_JOIN_CONDITION && rexCall.operands.length == 3
   }
 
@@ -254,8 +255,10 @@ object TemporalJoinUtil {
     var hasTemporalJoinCondition: Boolean = false
     condition.accept(new RexVisitorImpl[Void](true) {
       override def visitCall(call: RexCall): Void = {
-        if (call.getOperator != TEMPORAL_JOIN_CONDITION &&
-          call.getOperator != INITIAL_TEMPORAL_JOIN_CONDITION) {
+        if (
+          call.getOperator != TEMPORAL_JOIN_CONDITION &&
+          call.getOperator != INITIAL_TEMPORAL_JOIN_CONDITION
+        ) {
           super.visitCall(call)
         } else {
           hasTemporalJoinCondition = true
@@ -287,8 +290,10 @@ object TemporalJoinUtil {
     var rowtimeJoin: Boolean = false
     val visitor = new RexVisitorImpl[Unit](true) {
       override def visitCall(call: RexCall): Unit = {
-        if (isRowTimeTemporalTableJoinCon(call) ||
-          isRowTimeTemporalFunctionJoinCon(call)) {
+        if (
+          TemporalTableJoinUtil.isRowTimeTemporalTableJoinCondition(call) ||
+          isRowTimeTemporalFunctionJoinCon(call)
+        ) {
           rowtimeJoin = true
         } else {
           super.visitCall(call)
@@ -299,13 +304,8 @@ object TemporalJoinUtil {
     rowtimeJoin
   }
 
-  def isRowTimeTemporalTableJoinCon(rexCall: RexCall): Boolean = {
-    //(LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, LEFT_KEY, RIGHT_KEY, PRIMARY_KEY)
-    rexCall.getOperator == TEMPORAL_JOIN_CONDITION && rexCall.operands.length == 5
-  }
-
   def isRowTimeTemporalFunctionJoinCon(rexCall: RexCall): Boolean = {
-    //(LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, PRIMARY_KEY)
+    // (LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, PRIMARY_KEY)
     rexCall.getOperator == TEMPORAL_JOIN_CONDITION && rexCall.operands.length == 3
   }
 
@@ -326,20 +326,20 @@ object TemporalJoinUtil {
   }
 
   def isTemporalFunctionCon(rexCall: RexCall): Boolean = {
-    //(LEFT_TIME_ATTRIBUTE, PRIMARY_KEY)
-    //(LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, PRIMARY_KEY)
+    // (LEFT_TIME_ATTRIBUTE, PRIMARY_KEY)
+    // (LEFT_TIME_ATTRIBUTE, RIGHT_TIME_ATTRIBUTE, PRIMARY_KEY)
     rexCall.getOperator == TEMPORAL_JOIN_CONDITION &&
-      (rexCall.operands.length == 2 || rexCall.operands.length == 3)
+    (rexCall.operands.length == 2 || rexCall.operands.length == 3)
   }
 
   def validateTemporalFunctionCondition(
-        call: RexCall,
-        leftTimeAttribute: RexNode,
-        rightTimeAttribute: Option[RexNode],
-        rightPrimaryKey: Option[Array[RexNode]],
-        rightKeysStartingOffset: Int,
-        joinSpec: JoinSpec,
-        textualRepresentation: String): Unit = {
+      call: RexCall,
+      leftTimeAttribute: RexNode,
+      rightTimeAttribute: Option[RexNode],
+      rightPrimaryKey: Option[Array[RexNode]],
+      rightKeysStartingOffset: Int,
+      joinSpec: JoinSpec,
+      textualRepresentation: String): Unit = {
 
     if (TemporalJoinUtil.isRowTimeTemporalFunctionJoinCon(call)) {
 
@@ -359,8 +359,7 @@ object TemporalJoinUtil {
           s"Non rowtime timeAttribute [${leftTimeAttribute.getType}] " +
             s"passed as the argument to TemporalTableFunction")
       }
-    }
-    else {
+    } else {
       validateTemporalFunctionPrimaryKey(
         rightKeysStartingOffset,
         rightPrimaryKey,
@@ -376,10 +375,10 @@ object TemporalJoinUtil {
   }
 
   private def validateTemporalFunctionPrimaryKey(
-        rightKeysStartingOffset: Int,
-        rightPrimaryKey: Option[Array[RexNode]],
-        joinInfo: JoinSpec,
-        textualRepresentation: String): Unit = {
+      rightKeysStartingOffset: Int,
+      rightPrimaryKey: Option[Array[RexNode]],
+      joinInfo: JoinSpec,
+      textualRepresentation: String): Unit = {
     if (joinInfo.getRightKeys.length != 1) {
       throw new ValidationException(
         s"Only single column join key is supported. " +
@@ -395,9 +394,7 @@ object TemporalJoinUtil {
 
     val rightJoinKeyInputReference = joinInfo.getRightKeys()(0) + rightKeysStartingOffset
 
-    val rightPrimaryKeyInputReference = extractInputRef(
-      pk,
-      textualRepresentation)
+    val rightPrimaryKeyInputReference = extractInputRef(pk, textualRepresentation)
 
     if (rightPrimaryKeyInputReference != rightJoinKeyInputReference) {
       throw new ValidationException(
@@ -405,6 +402,63 @@ object TemporalJoinUtil {
           s"temporal table's primary key [$pk] " +
           s"in [$textualRepresentation]")
     }
+  }
+
+  /**
+   * Gets the join key pairs from left input field index to temporal table field index
+   * @param joinInfo
+   *   the join information of temporal table join
+   * @param calcOnTemporalTable
+   *   the calc programs on temporal table
+   */
+  def getTemporalTableJoinKeyPairs(
+      joinInfo: JoinInfo,
+      calcOnTemporalTable: Option[RexProgram]): Array[IntPair] = {
+    val joinPairs = joinInfo.pairs().asScala.toArray
+    calcOnTemporalTable match {
+      case Some(program) =>
+        // the target key of joinInfo is the calc output fields, we have to remapping to table here
+        val keyPairs = new mutable.ArrayBuffer[IntPair]()
+        joinPairs.map {
+          p =>
+            val calcSrcIdx = getIdenticalSourceField(program, p.target)
+            if (calcSrcIdx != -1) {
+              keyPairs += new IntPair(p.source, calcSrcIdx)
+            }
+        }
+        keyPairs.toArray
+      case None => joinPairs
+    }
+  }
+
+  // this is highly inspired by Calcite's RexProgram#getSourceField(int)
+  private def getIdenticalSourceField(rexProgram: RexProgram, outputOrdinal: Int): Int = {
+    assert((outputOrdinal >= 0) && (outputOrdinal < rexProgram.getProjectList.size()))
+    val project = rexProgram.getProjectList.get(outputOrdinal)
+    var index = project.getIndex
+    while (true) {
+      var expr = rexProgram.getExprList.get(index)
+      expr match {
+        case call: RexCall if call.getOperator == SqlStdOperatorTable.IN_FENNEL =>
+          // drill through identity function
+          expr = call.getOperands.get(0)
+        case call: RexCall if call.getOperator == SqlStdOperatorTable.CAST =>
+          // drill through identity function
+          val outputType = call.getType
+          val inputType = call.getOperands.get(0).getType
+          val isCompatible = PlannerTypeUtils.isInteroperable(
+            FlinkTypeFactory.toLogicalType(outputType),
+            FlinkTypeFactory.toLogicalType(inputType))
+          expr = if (isCompatible) call.getOperands.get(0) else expr
+        case _ =>
+      }
+      expr match {
+        case ref: RexLocalRef => index = ref.getIndex
+        case ref: RexInputRef => return ref.getIndex
+        case _ => return -1
+      }
+    }
+    -1
   }
 
   def extractInputRef(rexNode: RexNode, textualRepresentation: String): Int = {
@@ -420,9 +474,10 @@ object TemporalJoinUtil {
   /**
    * Check whether input join node satisfy preconditions to convert into temporal join.
    *
-   * @param join input join to analyze.
-   * @return True if input join node satisfy preconditions to convert into temporal join,
-   *         else false.
+   * @param join
+   *   input join to analyze.
+   * @return
+   *   True if input join node satisfy preconditions to convert into temporal join, else false.
    */
   def satisfyTemporalJoin(join: FlinkLogicalJoin): Boolean = {
     satisfyTemporalJoin(join, join.getLeft, join.getRight)

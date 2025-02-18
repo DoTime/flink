@@ -15,22 +15,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.codegen
-
-import org.apache.flink.table.api.{DataTypes, JsonOnNull}
-import org.apache.flink.table.planner.codegen.CodeGenUtils.{ARRAY_DATA, MAP_DATA, className, newName, rowFieldReadAccess, typeTerm}
-import org.apache.flink.table.planner.functions.sql.FlinkSqlOperatorTable.{JSON_ARRAY, JSON_OBJECT}
-import org.apache.flink.table.planner.utils.JavaScalaConversionUtil.toScala
-import org.apache.flink.table.runtime.functions.SqlJsonUtils
-import org.apache.flink.table.runtime.typeutils.TypeCheckUtils.isCharacterString
-import org.apache.flink.table.types.logical.LogicalTypeRoot._
-import org.apache.flink.table.types.logical._
-import org.apache.flink.table.types.logical.utils.LogicalTypeChecks
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.{ArrayNode, ObjectNode}
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.util.RawValue
+import org.apache.flink.table.api.{DataTypes, JsonOnNull}
+import org.apache.flink.table.functions.BuiltInFunctionDefinitions.JSON
+import org.apache.flink.table.planner.codegen.CodeGenUtils.{className, newName, rowFieldReadAccess, typeTerm, ARRAY_DATA, MAP_DATA}
+import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction
+import org.apache.flink.table.planner.functions.sql.FlinkSqlOperatorTable.{JSON_ARRAY, JSON_OBJECT}
+import org.apache.flink.table.planner.utils.JavaScalaConversionUtil.toScala
+import org.apache.flink.table.planner.utils.ShortcutUtils.unwrapFunctionDefinition
+import org.apache.flink.table.runtime.functions.SqlJsonUtils
+import org.apache.flink.table.runtime.typeutils.TypeCheckUtils.isCharacterString
+import org.apache.flink.table.types.logical._
+import org.apache.flink.table.types.logical.LogicalTypeRoot._
+import org.apache.flink.table.types.logical.utils.LogicalTypeChecks
 
 import org.apache.calcite.rex.{RexCall, RexNode}
 
@@ -43,13 +44,15 @@ object JsonGenerateUtils {
 
   private def jsonUtils = className[SqlJsonUtils]
 
-  /** Returns a term which wraps the given `expression` into a [[JsonNode]]. If the operand
-   * represents another JSON construction function, a raw node is used instead. */
+  /**
+   * Returns a term which wraps the given `expression` into a [[JsonNode]]. If the operand
+   * represents another JSON construction function, a raw node is used instead.
+   */
   def createNodeTerm(
       ctx: CodeGeneratorContext,
       expression: GeneratedExpression,
       operand: RexNode): String = {
-    if (isJsonFunctionOperand(operand)) {
+    if (isJsonObjectOrArrayOperand(operand) || isJsonFunctionOperand(operand)) {
       createRawNodeTerm(expression)
     } else {
       createNodeTerm(ctx, expression)
@@ -61,9 +64,7 @@ object JsonGenerateUtils {
    *
    * Does not support nullability.
    */
-  def createNodeTerm(
-      ctx: CodeGeneratorContext,
-      valueExpr: GeneratedExpression): String = {
+  def createNodeTerm(ctx: CodeGeneratorContext, valueExpr: GeneratedExpression): String = {
     createNodeTerm(ctx, valueExpr.resultTerm, valueExpr.resultType)
   }
 
@@ -71,8 +72,7 @@ object JsonGenerateUtils {
   private def createNodeTerm(
       ctx: CodeGeneratorContext,
       valueTerm: String,
-      valueType: LogicalType)
-    : String = {
+      valueType: LogicalType): String = {
     val nodeFactoryTerm = s"$jsonUtils.getNodeFactory()"
 
     valueType.getTypeRoot match {
@@ -97,11 +97,11 @@ object JsonGenerateUtils {
         s"$nodeFactoryTerm.binaryNode($valueTerm)"
 
       case ARRAY =>
-        val converterName = generateArrayConverter(ctx,
-          valueType.asInstanceOf[ArrayType].getElementType)
+        val converterName =
+          generateArrayConverter(ctx, valueType.asInstanceOf[ArrayType].getElementType)
         s"$converterName($valueTerm)"
 
-      case ROW | STRUCTURED_TYPE=>
+      case ROW | STRUCTURED_TYPE =>
         val converterName = generateRowConverter(ctx, valueType)
         s"$converterName($valueTerm)"
 
@@ -111,18 +111,18 @@ object JsonGenerateUtils {
         s"$converterName($valueTerm)"
 
       case MULTISET =>
-        val converterName = generateMapConverter(ctx,
-          valueType.asInstanceOf[MultisetType].getElementType, DataTypes.INT().getLogicalType)
+        val converterName = generateMapConverter(
+          ctx,
+          valueType.asInstanceOf[MultisetType].getElementType,
+          DataTypes.INT().getLogicalType)
         s"$converterName($valueTerm)"
 
       case DISTINCT_TYPE =>
-        createNodeTerm(
-          ctx,
-          valueTerm,
-          valueType.asInstanceOf[DistinctType].getSourceType)
+        createNodeTerm(ctx, valueTerm, valueType.asInstanceOf[DistinctType].getSourceType)
 
-      case _ => throw new CodeGenException(
-        s"Type '$valueType' is not scalar or cannot be converted into JSON.")
+      case _ =>
+        throw new CodeGenException(
+          s"Type '$valueType' is not scalar or cannot be converted into JSON.")
     }
   }
 
@@ -151,8 +151,10 @@ object JsonGenerateUtils {
   /**
    * Returns a term which wraps the given `valueExpr` as a raw [[JsonNode]].
    *
-   * @param valueExpr Generated expression of the value which should be wrapped.
-   * @return Generate code fragment creating the raw node.
+   * @param valueExpr
+   *   Generated expression of the value which should be wrapped.
+   * @return
+   *   Generate code fragment creating the raw node.
    */
   private def createRawNodeTerm(valueExpr: GeneratedExpression): String = {
     s"""
@@ -165,21 +167,51 @@ object JsonGenerateUtils {
   def getOnNullBehavior(operand: GeneratedExpression): JsonOnNull = {
     operand.literalValue match {
       case Some(onNull: JsonOnNull) => onNull
-      case _ => throw new CodeGenException(s"Expected operand to be of type"
-        + s"'${typeTerm(classOf[JsonOnNull])}''")
+      case _ =>
+        throw new CodeGenException(
+          s"Expected operand to be of type"
+            + s"'${typeTerm(classOf[JsonOnNull])}''")
+    }
+  }
+
+  /** Determines whether the given operand is a call to a JSON_OBJECT */
+  def isJsonObjectOperand(operand: RexNode): Boolean = {
+    operand match {
+      case rexCall: RexCall =>
+        rexCall.getOperator match {
+          case JSON_OBJECT => true
+          case _ => false
+        }
+      case _ => false
     }
   }
 
   /**
-   * Determines whether the given operand is a call to a JSON function whose result should be
-   * inserted as a raw value instead of as a character string.
+   * Determines whether the given operand is a call to a JSON_OBJECT or JSON_ARRAY whose result
+   * should be inserted as a raw value instead of as a character string.
+   */
+  def isJsonObjectOrArrayOperand(operand: RexNode): Boolean = {
+    operand match {
+      case rexCall: RexCall =>
+        rexCall.getOperator match {
+          case JSON_OBJECT | JSON_ARRAY => true
+          case _ => false
+        }
+      case _ => false
+    }
+  }
+
+  /**
+   * Determines whether the given operand is a call to JSON function whose call currently just
+   * passes through the input value as output value
    */
   def isJsonFunctionOperand(operand: RexNode): Boolean = {
     operand match {
-      case rexCall: RexCall => rexCall.getOperator match {
-        case JSON_OBJECT | JSON_ARRAY => true
-        case _ => false
-      }
+      case rexCall: RexCall =>
+        unwrapFunctionDefinition(rexCall) match {
+          case JSON => true
+          case _ => false
+        }
       case _ => false
     }
   }
@@ -187,9 +219,8 @@ object JsonGenerateUtils {
   /** Generates a method to convert arrays into [[ArrayNode]]. */
   private def generateArrayConverter(
       ctx: CodeGeneratorContext,
-      elementType: LogicalType)
-    : String = {
-    val methodName = newName("convertArray")
+      elementType: LogicalType): String = {
+    val methodName = newName(ctx, "convertArray")
     val methodCode =
       s"""
          |private ${className[ArrayNode]} $methodName($ARRAY_DATA arrData) {
@@ -207,9 +238,7 @@ object JsonGenerateUtils {
   }
 
   /** Generates a method to convert rows into [[ObjectNode]]. */
-  private def generateRowConverter(
-      ctx: CodeGeneratorContext,
-      rowType: LogicalType): String = {
+  private def generateRowConverter(ctx: CodeGeneratorContext, rowType: LogicalType): String = {
     val fieldNames = toScala(LogicalTypeChecks.getFieldNames(rowType))
     val fieldTypes = toScala(LogicalTypeChecks.getFieldTypes(rowType))
 
@@ -223,7 +252,7 @@ object JsonGenerateUtils {
            |""".stripMargin
     }.mkString
 
-    val methodName = newName("convertRow")
+    val methodName = newName(ctx, "convertRow")
     val methodCode =
       s"""
          |private ${className[ObjectNode]} $methodName(${CodeGenUtils.ROW_DATA} rowData) {
@@ -249,7 +278,7 @@ object JsonGenerateUtils {
           + "The key type must be a character string.")
     }
 
-    val methodName = newName("convertMap")
+    val methodName = newName(ctx, "convertMap")
     val methodCode =
       s"""
          |private ${className[ObjectNode]} $methodName($MAP_DATA mapData) {

@@ -27,22 +27,23 @@ import org.apache.flink.table.runtime.generated.RecordComparator;
 import org.apache.flink.table.runtime.typeutils.BinaryRowDataSerializer;
 import org.apache.flink.util.MutableObjectIterator;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /** Test of {@link BinaryMergeIterator}. */
-public class BinaryMergeIteratorTest {
+class BinaryMergeIteratorTest {
 
     private RecordComparator comparator;
     private BinaryRowDataSerializer serializer;
 
-    @Before
-    public void setup() throws InstantiationException, IllegalAccessException {
+    @BeforeEach
+    void setup() throws InstantiationException, IllegalAccessException {
         serializer = new BinaryRowDataSerializer(2);
         comparator = IntRecordComparator.INSTANCE;
     }
@@ -80,7 +81,7 @@ public class BinaryMergeIteratorTest {
     }
 
     @Test
-    public void testOneStream() throws Exception {
+    void testOneStream() throws Exception {
         List<MutableObjectIterator<BinaryRowData>> iterators = new ArrayList<>();
         iterators.add(
                 newIterator(new int[] {1, 2, 4, 5, 10}, new String[] {"1", "2", "4", "5", "10"}));
@@ -97,12 +98,12 @@ public class BinaryMergeIteratorTest {
 
         int pos = 0;
         while ((row = iterator.next(row)) != null) {
-            Assert.assertEquals(expected[pos++], row.getInt(0));
+            assertThat(row.getInt(0)).isEqualTo(expected[pos++]);
         }
     }
 
     @Test
-    public void testMergeOfTwoStreams() throws Exception {
+    void testMergeOfTwoStreams() throws Exception {
         List<MutableObjectIterator<BinaryRowData>> iterators = new ArrayList<>();
         iterators.add(
                 newIterator(new int[] {1, 2, 4, 5, 10}, new String[] {"1", "2", "4", "5", "10"}));
@@ -119,12 +120,12 @@ public class BinaryMergeIteratorTest {
 
         int pos = 0;
         while ((row = iterator.next(row)) != null) {
-            Assert.assertEquals(expected[pos++], row.getInt(0));
+            assertThat(row.getInt(0)).isEqualTo(expected[pos++]);
         }
     }
 
     @Test
-    public void testMergeOfTenStreams() throws Exception {
+    void testMergeOfTenStreams() throws Exception {
         List<MutableObjectIterator<BinaryRowData>> iterators = new ArrayList<>();
         iterators.add(
                 newIterator(new int[] {1, 2, 17, 23, 23}, new String[] {"A", "B", "C", "D", "E"}));
@@ -157,7 +158,7 @@ public class BinaryMergeIteratorTest {
 
         int pre = 0;
         while ((row = iterator.next(row)) != null) {
-            Assert.assertTrue(comparator.compare(row.getInt(0), pre) >= 0);
+            assertThat(comparator.compare(row.getInt(0), pre)).isGreaterThanOrEqualTo(0);
             pre = row.getInt(0);
         }
     }

@@ -24,8 +24,7 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.operators.bundle.KeyedMapBundleOperator;
 import org.apache.flink.table.runtime.operators.bundle.trigger.CountBundleTrigger;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,13 +32,14 @@ import java.util.List;
 import static org.apache.flink.table.runtime.util.StreamRecordUtils.insertRecord;
 import static org.apache.flink.table.runtime.util.StreamRecordUtils.updateAfterRecord;
 import static org.apache.flink.table.runtime.util.StreamRecordUtils.updateBeforeRecord;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Harness tests for {@link RowTimeMiniBatchLatestChangeDeduplicateFunction}. */
-public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
+class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         extends RowTimeDeduplicateFunctionTestBase {
 
     @Test
-    public void testKeepLastRowWithoutGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
+    void testKeepLastRowWithoutGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(false, true, true);
         testHarness.open();
@@ -47,7 +47,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -65,8 +65,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepLastRowWithoutGenerateUpdateBeforeAndWithoutGenerateInsert()
-            throws Exception {
+    void testKeepLastRowWithoutGenerateUpdateBeforeAndWithoutGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(false, false, true);
         testHarness.open();
@@ -74,7 +73,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -92,7 +91,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepLastRowWithGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
+    void testKeepLastRowWithGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(true, true, true);
         testHarness.open();
@@ -100,7 +99,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -119,7 +118,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepLastRowWithGenerateUpdateBeforeAndWithoutGenerateInsert() throws Exception {
+    void testKeepLastRowWithGenerateUpdateBeforeAndWithoutGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(true, false, true);
         testHarness.open();
@@ -127,7 +126,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -146,7 +145,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepLastRowWithGenerateUpdateBeforeAndWithGenerateInsertAndStateTtl()
+    void testKeepLastRowWithGenerateUpdateBeforeAndWithGenerateInsertAndStateTtl()
             throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(true, true, true);
@@ -155,7 +154,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -176,8 +175,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepFirstRowWithoutGenerateUpdateBeforeAndWithGenerateInsert()
-            throws Exception {
+    void testKeepFirstRowWithoutGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(false, true, false);
         testHarness.open();
@@ -185,7 +183,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -202,8 +200,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepFirstRowWithoutGenerateUpdateBeforeAndWithoutGenerateInsert()
-            throws Exception {
+    void testKeepFirstRowWithoutGenerateUpdateBeforeAndWithoutGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(false, false, false);
         testHarness.open();
@@ -211,7 +208,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -228,7 +225,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepFirstRowWithGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
+    void testKeepFirstRowWithGenerateUpdateBeforeAndWithGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(true, true, false);
         testHarness.open();
@@ -236,7 +233,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -253,8 +250,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepFirstRowWithGenerateUpdateBeforeAndWithoutGenerateInsert()
-            throws Exception {
+    void testKeepFirstRowWithGenerateUpdateBeforeAndWithoutGenerateInsert() throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(true, false, false);
         testHarness.open();
@@ -262,7 +258,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -279,7 +275,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
     }
 
     @Test
-    public void testKeepFirstRowWithGenerateUpdateBeforeAndWithGenerateInsertAndStateTtl()
+    void testKeepFirstRowWithGenerateUpdateBeforeAndWithGenerateInsertAndStateTtl()
             throws Exception {
         OneInputStreamOperatorTestHarness<RowData, RowData> testHarness =
                 createTestHarness(true, true, false);
@@ -288,7 +284,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
         testHarness.processElement(insertRecord("book", 11, 2L));
         testHarness.processElement(insertRecord("book", 13, 1L));
         // output is empty because bundle not trigger yet.
-        Assert.assertTrue(testHarness.getOutput().isEmpty());
+        assertThat(testHarness.getOutput()).isEmpty();
         // bundle trigger emit.
         testHarness.processElement(insertRecord("book", 12, 1L));
         List<Object> expectedOutput = new ArrayList<>();
@@ -315,7 +311,7 @@ public class RowTimeMiniBatchLatestChangeDeduplicateFunctionTest
                 new RowTimeMiniBatchLatestChangeDeduplicateFunction(
                         inputRowType,
                         serializer,
-                        minTtlTime.toMilliseconds(),
+                        minTtlTime.toMillis(),
                         rowTimeIndex,
                         generateUpdateBefore,
                         generateInsert,

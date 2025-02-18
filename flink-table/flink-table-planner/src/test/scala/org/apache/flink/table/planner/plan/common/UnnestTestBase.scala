@@ -15,21 +15,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.plan.common
 
-import org.apache.flink.api.common.typeinfo.TypeInformation
-import org.apache.flink.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.planner.utils.{TableTestBase, TableTestUtil}
+import org.apache.flink.table.types.AbstractDataType
 
-import org.junit.Test
+import org.junit.jupiter.api.Test
 
 import java.sql.Timestamp
 
-/**
-  * Test for UNNEST queries.
-  */
+/** Test for UNNEST queries. */
 abstract class UnnestTestBase(withExecPlan: Boolean) extends TableTestBase {
 
   protected val util: TableTestUtil = getTableTestUtil
@@ -97,11 +93,18 @@ abstract class UnnestTestBase(withExecPlan: Boolean) extends TableTestBase {
   }
 
   @Test
+  def testUnnestWithValues(): Unit = {
+    verifyPlan("SELECT * FROM UNNEST(ARRAY[1,2,3])")
+  }
+
+  @Test
   def testCrossWithUnnestForMap(): Unit = {
-    util.addTableSource("MyTable",
-      Array[TypeInformation[_]](Types.INT,
-        Types.LONG,
-        Types.MAP(Types.STRING, Types.STRING)),
+    util.addTableSource(
+      "MyTable",
+      Array[AbstractDataType[_]](
+        DataTypes.INT,
+        DataTypes.BIGINT,
+        DataTypes.MAP(DataTypes.STRING, DataTypes.STRING)),
       Array("a", "b", "c"))
     verifyPlan("SELECT a, b, v FROM MyTable CROSS JOIN UNNEST(c) as f(k, v)")
   }
@@ -125,7 +128,24 @@ abstract class UnnestTestBase(withExecPlan: Boolean) extends TableTestBase {
     verifyPlan("SELECT a, b, A._1, A._2 FROM MyTable, UNNEST(MyTable.b) AS A where A._1 > 1")
   }
 
-  private def verifyPlan(sql: String): Unit = {
+  @Test
+  def testUnnestWithNestedFilter(): Unit = {
+    util.addTableSource[(Int, Array[(Int, String)])]("MyTable", 'a, 'b)
+    val sqlQuery =
+      """
+        |SELECT * FROM (
+        |   SELECT a, b1, b2 FROM
+        |       (SELECT a, b FROM MyTable) T
+        |       CROSS JOIN
+        |       UNNEST(T.b) AS S(b1, b2)
+        |       WHERE S.b1 >= 12
+        |   ) tmp
+        |WHERE b2 <> 'Hello'
+    """.stripMargin
+    verifyPlan(sqlQuery)
+  }
+
+  def verifyPlan(sql: String): Unit = {
     if (withExecPlan) {
       util.verifyExecPlan(sql)
     } else {

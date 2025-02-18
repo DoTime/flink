@@ -113,6 +113,7 @@ val result = orders
 
 ```python
 from pyflink.table import *
+from pyflink.table.expressions import col
 
 # 环境配置
 t_env = TableEnvironment.create(
@@ -151,8 +152,7 @@ t_env.execute_sql(sink_ddl)
 # 指定表程序
 orders = t_env.from_path("Orders")  # schema (a, b, c, rowtime)
 
-orders.group_by("a").select(orders.a, orders.b.count.alias('cnt')).execute_insert("result").wait()
-
+orders.group_by(col("a")).select(col("a"), col("b").count.alias('cnt')).execute_insert("result").wait()
 ```
 
 {{< /tab >}}
@@ -207,14 +207,15 @@ val result: Table = orders
 ```python
 # 指定表程序
 from pyflink.table.expressions import col, lit
+from pyflink.table.window import Tumble
 
 orders = t_env.from_path("Orders")  # schema (a, b, c, rowtime)
 
-result = orders.filter(orders.a.is_not_null & orders.b.is_not_null & orders.c.is_not_null) \
-               .select(orders.a.lower_case.alias('a'), orders.b, orders.rowtime) \
-               .window(Tumble.over(lit(1).hour).on(orders.rowtime).alias("hourly_window")) \
+result = orders.filter(col("a").is_not_null & col("b").is_not_null & col("c").is_not_null) \
+               .select(col("a").lower_case.alias('a'), col("b"), col("rowtime")) \
+               .window(Tumble.over(lit(1).hour).on(col("rowtime")).alias("hourly_window")) \
                .group_by(col('hourly_window'), col('a')) \
-               .select(col('a'), col('hourly_window').end.alias('hour'), b.avg.alias('avg_billing_amount'))
+               .select(col('a'), col('hourly_window').end.alias('hour'), col("b").avg.alias('avg_billing_amount'))
 ```
 
 {{< /tab >}}
@@ -224,12 +225,12 @@ result = orders.filter(orders.a.is_not_null & orders.b.is_not_null & orders.c.is
 
 {{< top >}}
 
-Operations
+支持的操作
 ----------
 
 Table API支持如下操作。请注意不是所有的操作都可以既支持流也支持批；这些操作都具有相应的标记。
 
-### Scan, Projection, and Filter
+### Scan, Projection 和 Filter
 
 #### From
 
@@ -293,10 +294,9 @@ table = t_env.from_elements([(1, 'ABC'), (2, 'ABCDE')])
 
 ```
 root
-|-- f0: BIGINT NOT NULL     // original types INT and BIGINT are generalized to BIGINT
-|-- f1: VARCHAR(5) NOT NULL // original types CHAR(3) and CHAR(5) are generalized
-                            // to VARCHAR(5). VARCHAR is used instead of CHAR so that
-                            // no padding is applied
+|-- f0: BIGINT NOT NULL     // 原始类型 INT 和 BIGINT 泛化为 BIGINT 类型。
+|-- f1: VARCHAR(5) NOT NULL // 原始类型 CHAR(3) 和 CHAR(5) 泛化为 VARCHAR(5) 类型。
+                            // 使用 VARCHAR 而不是 CHAR 来保证没有填充
 ```
 
 这个方法会根据输入的表达式自动获取类型。如果在某一个特定位置的类型不一致，该方法会尝试寻找一个所有类型的公共超类型。如果公共超类型不存在，则会抛出异常。
@@ -369,7 +369,7 @@ Table result = orders.select($"a", $"c" as "d")
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.select(orders.a, orders.c.alias('d'))
+result = orders.select(col("a"), col("c").alias('d'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -417,7 +417,7 @@ val orders: Table = tableEnv.from("Orders").as("x", "y", "z", "t")
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.alias("x, y, z, t")
+result = orders.alias("x", "y", "z", "t")
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -446,7 +446,7 @@ val result = orders.filter($"a" % 2 === 0)
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.where(orders.a == 'red')
+result = orders.where(col("a") == 'red')
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -469,7 +469,7 @@ val result = orders.filter($"a" % 2 === 0)
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.filter(orders.a == 'red')
+result = orders.filter(col("a") == 'red')
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -504,7 +504,7 @@ val result = orders.addColumns(concat($"c", "Sunny"))
 from pyflink.table.expressions import concat
 
 orders = t_env.from_path("Orders")
-result = orders.add_columns(concat(orders.c, 'sunny'))
+result = orders.add_columns(concat(col("c"), 'sunny'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -535,7 +535,7 @@ val result = orders.addOrReplaceColumns(concat($"c", "Sunny") as "desc")
 from pyflink.table.expressions import concat
 
 orders = t_env.from_path("Orders")
-result = orders.add_or_replace_columns(concat(orders.c, 'sunny').alias('desc'))
+result = orders.add_or_replace_columns(concat(col("c"), 'sunny').alias('desc'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -560,7 +560,7 @@ val result = orders.dropColumns($"b", $"c")
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.drop_columns(orders.b, orders.c)
+result = orders.drop_columns(col("b"), col("c"))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -588,16 +588,16 @@ val result = orders.renameColumns($"b" as "b2", $"c" as "c2")
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.rename_columns(orders.b.alias('b2'), orders.c.alias('c2'))
+result = orders.rename_columns(col("b").alias('b2'), col("c").alias('c2'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
 {{< top >}}
 
-### Aggregations
+### 聚合操作
 
-#### GroupBy Aggregation
+#### GroupBy 聚合
 
 {{< label "Batch" >}} {{< label "Streaming" >}}
 {{< label "Result Updating" >}}
@@ -621,14 +621,14 @@ val result = orders.groupBy($"a").select($"a", $"b".sum().as("d"))
 {{< tab "Python" >}}
 ```python
 orders = t_env.from_path("Orders")
-result = orders.group_by(orders.a).select(orders.a, orders.b.sum.alias('d'))
+result = orders.group_by(col("a")).select(col("a"), col("b").sum.alias('d'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
-#### GroupBy Window Aggregation
+#### GroupBy Window 聚合
 
 {{< label "Batch" >}} {{< label "Streaming" >}}
 
@@ -666,16 +666,17 @@ from pyflink.table.window import Tumble
 from pyflink.table.expressions import lit, col
 
 orders = t_env.from_path("Orders")
-result = orders.window(Tumble.over(lit(5).minutes).on(orders.rowtime).alias("w")) \ 
-               .group_by(orders.a, col('w')) \
-               .select(orders.a, col('w').start, col('w').end, orders.b.sum.alias('d'))
+result = orders.window(Tumble.over(lit(5).minutes).on(col('rowtime')).alias("w")) \
+               .group_by(col('a'), col('w')) \
+               .select(col('a'), col('w').start, col('w').end, col('b').sum.alias('d'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-#### Over Window Aggregation
+#### Over Window 聚合
 
 和 SQL 的 `OVER` 子句类似。
+基于前一行和后一行的窗口（范围），为每一行计算Over Window聚合。
 更多细节详见 [over windows section](#over-windows)
 
 {{< tabs "overwindowagg" >}}
@@ -721,24 +722,24 @@ from pyflink.table.window import Over
 from pyflink.table.expressions import col, UNBOUNDED_RANGE, CURRENT_RANGE
 
 orders = t_env.from_path("Orders")
-result = orders.over_window(Over.partition_by(orders.a).order_by(orders.rowtime)
+result = orders.over_window(Over.partition_by(col("a")).order_by(col("rowtime"))
                             .preceding(UNBOUNDED_RANGE).following(CURRENT_RANGE)
                             .alias("w")) \
-               .select(orders.a, orders.b.avg.over(col('w')), orders.b.max.over(col('w')), orders.b.min.over(col('w')))
+               .select(col("a"), col("b").avg.over(col('w')), col("b").max.over(col('w')), col("b").min.over(col('w')))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
 所有的聚合必须定义在同一个窗口上，比如同一个分区、排序和范围内。目前只支持 PRECEDING 到当前行范围（无界或有界）的窗口。尚不支持 FOLLOWING 范围的窗口。ORDER BY 操作必须指定一个单一的[时间属性]({{< ref "docs/dev/table/concepts/time_attributes" >}})。
 
-#### Distinct Aggregation
+#### Distinct 聚合
 
 {{< label "Batch" >}} {{< label "Streaming" >}}
 {{< label "Result Updating" >}}
 
 和 SQL DISTINCT 聚合子句类似，例如 `COUNT(DISTINCT a)`。
 Distinct 聚合声明的聚合函数（内置或用户定义的）仅应用于互不相同的输入值。
-Distinct 可以应用于 **GroupBy Aggregation**、**GroupBy Window Aggregation** 和 **Over Window Aggregation**。
+Distinct 可以应用于 **GroupBy 聚合**、**GroupBy Window 聚合** 和 **Over Window 聚合**。
 
 {{< tabs "distinctagg" >}}
 {{< tab "Java" >}}
@@ -795,22 +796,23 @@ val result = orders
 {{< tab "Python" >}}
 ```python
 from pyflink.table.expressions import col, lit, UNBOUNDED_RANGE
+from pyflink.table.window import Over, Tumble
 
 orders = t_env.from_path("Orders")
 # 按属性分组后的的互异（互不相同、去重）聚合
-group_by_distinct_result = orders.group_by(orders.a) \
-                                 .select(orders.a, orders.b.sum.distinct.alias('d'))
+group_by_distinct_result = orders.group_by(col("a")) \
+                                 .select(col("a"), col("b").sum.distinct.alias('d'))
 # 按属性、时间窗口分组后的互异（互不相同、去重）聚合
-group_by_window_distinct_result = orders.window(
-    Tumble.over(lit(5).minutes).on(orders.rowtime).alias("w")).group_by(orders.a, col('w')) \
-    .select(orders.a, orders.b.sum.distinct.alias('d'))
+group_by_window_distinct_result = orders.window(Tumble.over(lit(5).minutes).on(col("rowtime")).alias("w")) \
+    .group_by(col("a"), col('w')) \
+    .select(col("a"), col("b").sum.distinct.alias('d'))
 # over window 上的互异（互不相同、去重）聚合
 result = orders.over_window(Over
-                       .partition_by(orders.a)
-                       .order_by(orders.rowtime)
-                       .preceding(UNBOUNDED_RANGE)
-                       .alias("w")) \
-                       .select(orders.a, orders.b.avg.distinct.over(col('w')), orders.b.max.over(col('w')), orders.b.min.over(col('w')))
+                            .partition_by(col("a"))
+                            .order_by(col("rowtime"))
+                            .preceding(UNBOUNDED_RANGE)
+                            .alias("w")) \
+    .select(col("a"), col("b").avg.distinct.over(col('w')), col("b").max.over(col('w')), col("b").min.over(col('w')))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -822,8 +824,8 @@ result = orders.over_window(Over
 ```java
 Table orders = tEnv.from("Orders");
 
-// 对 user-defined aggregate functions 使用互异（互不相同、去重）聚合
-tEnv.registerFunction("myUdagg", new MyUdagg());
+// 对用户定义的聚合函数使用互异（互不相同、去重）聚合
+tEnv.createTemporarySystemFunction("myUdagg", MyUdagg.class);
 orders.groupBy("users")
     .select(
         $("users"),
@@ -835,17 +837,17 @@ orders.groupBy("users")
 ```scala
 val orders: Table = tEnv.from("Orders")
 
-// 对 user-defined aggregate functions 使用互异（互不相同、去重）聚合
+// 对用户定义的聚合函数使用互异（互不相同、去重）聚合
 val myUdagg = new MyUdagg()
 orders.groupBy($"users").select($"users", myUdagg.distinct($"points") as "myDistinctResult")
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
-Unsupported
+不支持
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
 #### Distinct
 
@@ -876,7 +878,7 @@ result = orders.distinct()
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
 {{< top >}}
 
@@ -911,12 +913,12 @@ from pyflink.table.expressions import col
 
 left = t_env.from_path("Source1").select(col('a'), col('b'), col('c'))
 right = t_env.from_path("Source2").select(col('d'), col('e'), col('f'))
-result = left.join(right).where(left.a == right.d).select(left.a, left.b, right.e)
+result = left.join(right).where(col('a') == col('d')).select(col('a'), col('b'), col('e'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
 #### Outer Join
 {{< label "Batch" >}} {{< label "Streaming" >}}
@@ -957,14 +959,14 @@ from pyflink.table.expressions import col
 left = t_env.from_path("Source1").select(col('a'), col('b'), col('c'))
 right = t_env.from_path("Source2").select(col('d'), col('e'), col('f'))
 
-left_outer_result = left.left_outer_join(right, left.a == right.d).select(left.a, left.b, right.e)
-right_outer_result = left.right_outer_join(right, left.a == right.d).select(left.a, left.b, right.e)
-full_outer_result = left.full_outer_join(right, left.a == right.d).select(left.a, left.b, right.e)
+left_outer_result = left.left_outer_join(right, col('a') == col('d')).select(col('a'), col('b'), col('e'))
+right_outer_result = left.right_outer_join(right, col('a') == col('d')).select(col('a'), col('b'), col('e'))
+full_outer_result = left.full_outer_join(right, col('a') == col('d')).select(col('a'), col('b'), col('e'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
 #### Interval Join
 
@@ -1006,26 +1008,25 @@ from pyflink.table.expressions import col
 
 left = t_env.from_path("Source1").select(col('a'), col('b'), col('c'), col('rowtime1'))
 right = t_env.from_path("Source2").select(col('d'), col('e'), col('f'), col('rowtime2'))
-  
-joined_table = left.join(right).where((left.a == right.d) & (left.rowtime1 >= right.rowtime2 - lit(1).second) & (left.rowtime1 <= right.rowtime2 + lit(2).seconds))
-result = joined_table.select(joined_table.a, joined_table.b, joined_table.e, joined_table.rowtime1)
+
+joined_table = left.join(right).where((col('a') == col('d')) & (col('rowtime1') >= col('rowtime2') - lit(1).second) & (col('rowtime1') <= col('rowtime2') + lit(2).seconds))
+result = joined_table.select(col('a'), col('b'), col('e'), col('rowtime1'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-#### Inner Join with Table Function (UDTF)
+#### 与表函数 (UDTF) 的 Inner Join 
 
 {{< label "Batch" >}} {{< label "Streaming" >}}
 
 join 表和表函数的结果。左（外部）表的每一行都会 join 表函数相应调用产生的所有行。
-如果表函数调用返回空结果，则删除左侧（外部）表的一行。
+如果表函数调用返回空结果，则对应左侧（外部）表的该行被丢弃。
 
 {{< tabs "udtf" >}}
 {{< tab "Java" >}}
 ```java
-// 注册 User-Defined Table Function
-TableFunction<Tuple3<String,String,String>> split = new MySplitUDTF();
-tableEnv.registerFunction("split", split);
+// 注册用户自定义表函数
+tableEnv.createTemporarySystemFunction("split", MySplitUDTF.class);
 
 // join
 Table orders = tableEnv.from("Orders");
@@ -1036,7 +1037,7 @@ Table result = orders
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
-// 实例化 User-Defined Table Function
+// 实例化用户自定义表函数
 val split: TableFunction[_] = new MySplitUDTF()
 
 // join
@@ -1047,34 +1048,33 @@ val result: Table = table
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-# 注册 User-Defined Table Function
+# 注册用户自定义表函数
 @udtf(result_types=[DataTypes.BIGINT(), DataTypes.BIGINT(), DataTypes.BIGINT()])
 def split(x):
     return [Row(1, 2, 3)]
 
 # join
 orders = t_env.from_path("Orders")
-joined_table = orders.join_lateral(split(orders.c).alias("s, t, v"))
-result = joined_table.select(joined_table.a, joined_table.b, joined_table.s, joined_table.t, joined_table.v)
+joined_table = orders.join_lateral(split(col('c')).alias("s", "t", "v"))
+result = joined_table.select(col('a'), col('b'), col('s'), col('t'), col('v'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
 
-####  Left Outer Join with Table Function (UDTF)
+####  与表函数 (UDTF) 的 Left Outer Join
 
 {{< label "Batch" >}} {{< label "Streaming" >}}
 
 join 表和表函数的结果。左（外部）表的每一行都会 join 表函数相应调用产生的所有行。如果表函数调用返回空结果，则保留相应的 outer（外部连接）行并用空值填充右侧结果。
 
-目前，表函数左外连接的谓词只能为空或字面（常量）真。
+目前，表函数左外连接的谓词只能为空或字面（常量）值 true。
 
 {{< tabs "outerudtf" >}}
 {{< tab "Java" >}}
 ```java
-// 注册 User-Defined Table Function
-TableFunction<Tuple3<String,String,String>> split = new MySplitUDTF();
-tableEnv.registerFunction("split", split);
+// 注册用户自定义表函数
+tableEnv.createTemporarySystemFunction("split", MySplitUDTF.class);
 
 // join
 Table orders = tableEnv.from("Orders");
@@ -1085,7 +1085,7 @@ Table result = orders
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
-// 实例化 User-Defined Table Function
+// 实例化用户自定义表函数
 val split: TableFunction[_] = new MySplitUDTF()
 
 // join
@@ -1096,24 +1096,24 @@ val result: Table = table
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-# 注册 User-Defined Table Function
+# 注册用户自定义表函数
 @udtf(result_types=[DataTypes.BIGINT(), DataTypes.BIGINT(), DataTypes.BIGINT()])
 def split(x):
     return [Row(1, 2, 3)]
 
 # join
 orders = t_env.from_path("Orders")
-joined_table = orders.left_outer_join_lateral(split(orders.c).alias("s, t, v"))
-result = joined_table.select(joined_table.a, joined_table.b, joined_table.s, joined_table.t, joined_table.v)
+joined_table = orders.left_outer_join_lateral(split(col('c')).alias("s", "t", "v"))
+result = joined_table.select(col('a'), col('b'), col('s'), col('t'), col('v'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-#### Join with Temporal Table
+#### 与 Temporal Table 做 Join
 
 Temporal table 是跟踪随时间变化的表。
 
-Temporal table 函数提供对特定时间点 temporal table 状态的访问。表与 temporal table 函数进行 join 的语法和使用表函数进行 inner join 的语法相同。
+Temporal table 函数提供对特定时间点 temporal table 状态的访问。表与 temporal table 函数进行 join 的语法和与表函数进行 inner join 的语法相同。
 
 目前仅支持与 temporal table 的 inner join。
 
@@ -1126,7 +1126,7 @@ Table ratesHistory = tableEnv.from("RatesHistory");
 TemporalTableFunction rates = ratesHistory.createTemporalTableFunction(
     "r_proctime",
     "r_currency");
-tableEnv.registerFunction("rates", rates);
+tableEnv.createTemporarySystemFunction("rates", rates);
 
 // 基于时间属性和键与“Orders”表关联
 Table orders = tableEnv.from("Orders");
@@ -1153,7 +1153,7 @@ val result = orders
 
 {{< top >}}
 
-### Set Operations
+### Set 操作
 
 #### Union
 
@@ -1178,11 +1178,13 @@ val right = tableEnv.from("orders2")
 left.union(right)
 ```
 {{< /tab >}}
-{{< tab >}}
-left = tableEnv.from_path("orders1")
-right = tableEnv.from_path("orders2")
+{{< tab "Python" >}}
+```python
+left = t_env.from_path("orders1")
+right = t_env.from_path("orders2")
 
 left.union(right)
+```
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -1211,11 +1213,13 @@ val right = tableEnv.from("orders2")
 left.unionAll(right)
 ```
 {{< /tab >}}
-{{< tab >}}
-left = tableEnv.from_path("orders1")
-right = tableEnv.from_path("orders2")
+{{< tab "Python" >}}
+```python
+left = t_env.from_path("orders1")
+right = t_env.from_path("orders2")
 
-left.unionAll(right)
+left.union_all(right)
+```
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -1242,11 +1246,13 @@ val right = tableEnv.from("orders2")
 left.intersect(right)
 ```
 {{< /tab >}}
-{{< tab >}}
-left = tableEnv.from_path("orders1")
-right = tableEnv.from_path("orders2")
+{{< tab "Python" >}}
+```python
+left = t_env.from_path("orders1")
+right = t_env.from_path("orders2")
 
 left.intersect(right)
+```
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -1273,11 +1279,13 @@ val right = tableEnv.from("orders2")
 left.intersectAll(right)
 ```
 {{< /tab >}}
-{{< tab >}}
-left = tableEnv.from_path("orders1")
-right = tableEnv.from_path("orders2")
+{{< tab "Python" >}}
+```python
+left = t_env.from_path("orders1")
+right = t_env.from_path("orders2")
 
-left.intersectAll(right)
+left.intersect_all(right)
+```
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -1304,11 +1312,13 @@ val right = tableEnv.from("orders2")
 left.minus(right)
 ```
 {{< /tab >}}
-{{< tab >}}
-left = tableEnv.from_path("orders1")
-right = tableEnv.from_path("orders2")
+{{< tab "Python" >}}
+```python
+left = t_env.from_path("orders1")
+right = t_env.from_path("orders2")
 
 left.minus(right)
+```
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -1334,11 +1344,13 @@ val right = tableEnv.from("orders2")
 left.minusAll(right)
 ```
 {{< /tab >}}
-{{< tab >}}
-left = tableEnv.from_path("orders1")
-right = tableEnv.from_path("orders2")
+{{< tab "Python" >}}
+```python
+left = t_env.from_path("orders1")
+right = t_env.from_path("orders2")
 
-left.minusAll(right)
+left.minus_all(right)
+```
 {{< /tab >}}
 {{< /tabs >}}
 
@@ -1370,16 +1382,16 @@ val result = left.select($"a", $"b", $"c").where($"a".in(right))
 left = t_env.from_path("Source1").select(col('a'), col('b'), col('c'))
 right = t_env.from_path("Source2").select(col('a'))
 
-result = left.select(left.a, left.b, left.c).where(left.a.in_(right))
+result = left.select(col('a'), col('b'), col('c')).where(col('a').in_(right))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
 {{< top >}}
 
-### OrderBy, Offset & Fetch
+### OrderBy, Offset 和 Fetch
 
 #### Order By 
 
@@ -1390,22 +1402,22 @@ result = left.select(left.a, left.b, left.c).where(left.a.in_(right))
 {{< tabs "orderby" >}}
 {{< tab "Java" >}}
 ```java
-Table result = in.orderBy($("a").asc());
+Table result = tab.orderBy($("a").asc());
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
-val result = in.orderBy($"a".asc)
+val result = tab.orderBy($"a".asc)
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-result = in.order_by(in.a.asc)
+result = tab.order_by(col('a').asc)
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-#### Offset & Fetch 
+#### Offset 和 Fetch 
 
 {{< label Batch >}} {{< label Streaming >}}
 
@@ -1440,13 +1452,13 @@ val result3: Table = in.orderBy($"a".asc).offset(10).fetch(5)
 {{< tab "Python" >}}
 ```python
 # 从已排序的结果集中返回前5条记录
-result1 = table.order_by(table.a.asc).fetch(5)
+result1 = table.order_by(col('a').asc).fetch(5)
 
 # 从已排序的结果集中返回跳过3条记录之后的所有记录
-result2 = table.order_by(table.a.asc).offset(3)
+result2 = table.order_by(col('a').asc).offset(3)
 
 # 从已排序的结果集中返回跳过10条记录之后的前5条记录
-result3 = table.order_by(table.a.asc).offset(10).fetch(5)
+result3 = table.order_by(col('a').asc).offset(10).fetch(5)
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -1455,7 +1467,9 @@ result3 = table.order_by(table.a.asc).offset(10).fetch(5)
 
 {{< label Batch >}} {{< label Streaming >}}
 
-和 SQL 查询中的 `INSERT INTO` 子句类似，该方法执行对已注册的输出表的插入操作。`executeInsert()` 方法将立即提交执行插入操作的 Flink job。
+和 SQL 查询中的 `INSERT INTO` 子句类似，该方法执行对已注册的输出表的插入操作。
+`insertInto()` 方法会将 `INSERT INTO` 转换为一个 `TablePipeline`。
+该数据流可以用 `TablePipeline.explain()` 来解释，用 `TablePipeline.execute()` 来执行。
 
 输出表必须已注册在 TableEnvironment（详见表连接器）中。此外，已注册表的 schema 必须与查询中的 schema 相匹配。
 
@@ -1463,13 +1477,13 @@ result3 = table.order_by(table.a.asc).offset(10).fetch(5)
 {{< tab "Java" >}}
 ```java
 Table orders = tableEnv.from("Orders");
-orders.executeInsert("OutOrders");
+orders.insertInto("OutOrders").execute();
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
 val orders = tableEnv.from("Orders")
-orders.executeInsert("OutOrders")
+orders.insertInto("OutOrders").execute()
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -1516,7 +1530,7 @@ val table = input
 ```python
 # 定义窗口并指定别名为 w，以窗口 w 对表进行分组，然后再聚合
 table = input.window([w: GroupWindow].alias("w")) \
-             .group_by(col('w')).select(input.b.sum)
+             .group_by(col('w')).select(col('b').sum)
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -1552,7 +1566,7 @@ val table = input
 # 定义窗口并指定别名为 w，以属性 a 和窗口 w 对表进行分组，
 # 然后再聚合
 table = input.window([w: GroupWindow].alias("w")) \
-             .group_by(col('w'), input.a).select(input.b.sum)
+             .group_by(col('w'), col('a')).select(col('b').sum)
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -1581,15 +1595,15 @@ val table = input
 # 定义窗口并指定别名为 w，以属性 a 和窗口 w 对表进行分组，
 # 然后再聚合并添加窗口开始、结束和 rowtime 时间戳
 table = input.window([w: GroupWindow].alias("w")) \
-             .group_by(col('w'), input.a) \
-             .select(input.a, col('w').start, col('w').end, col('w').rowtime, input.b.count)
+             .group_by(col('w'), col('a')) \
+             .select(col('a'), col('w').start, col('w').end, col('w').rowtime, col('b').count)
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
 `Window` 参数定义了如何将行映射到窗口。 `Window` 不是用户可以实现的接口。相反，Table API 提供了一组具有特定语义的预定义 `Window` 类。下面列出了支持的窗口定义。
 
-#### Tumble (Tumbling Windows)
+#### Tumble (滚动窗口)
 
 滚动窗口将行分配给固定长度的非重叠连续窗口。例如，一个 5 分钟的滚动窗口以 5 分钟的间隔对行进行分组。滚动窗口可以定义在事件时间、处理时间或行数上。
 
@@ -1600,8 +1614,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1622,13 +1636,13 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```java
-// Tumbling Event-time Window
+// 滚动事件时间窗口
 .window(Tumble.over(lit(10).minutes()).on($("rowtime")).as("w"));
 
-// Tumbling Processing-time Window (assuming a processing-time attribute "proctime")
+// 滚动处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Tumble.over(lit(10).minutes()).on($("proctime")).as("w"));
 
-// Tumbling Row-count Window (assuming a processing-time attribute "proctime")
+// 滚动 Row-count 窗口 (假设存在处理时间属性 "proctime")
 .window(Tumble.over(rowInterval(10)).on($("proctime")).as("w"));
 ```
 {{< /tab >}}
@@ -1638,8 +1652,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1660,13 +1674,13 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```scala
-// Tumbling Event-time Window
+// 滚动事件时间窗口
 .window(Tumble over 10.minutes on $"rowtime" as $"w")
 
-// Tumbling Processing-time Window (assuming a processing-time attribute "proctime")
+// 滚动处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Tumble over 10.minutes on $"proctime" as $"w")
 
-// Tumbling Row-count Window (assuming a processing-time attribute "proctime")
+// 滚动 Row-count 窗口 (假设存在处理时间属性 "proctime")
 .window(Tumble over 10.rows on $"proctime" as $"w")
 ```
 {{< /tab >}}
@@ -1676,8 +1690,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1698,19 +1712,19 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```python
-# Tumbling Event-time Window
+# 滚动事件时间窗口
 .window(Tumble.over(lit(10).minutes).on(col('rowtime')).alias("w"))
 
-# Tumbling Processing-time Window (assuming a processing-time attribute "proctime")
+# 滚动处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Tumble.over(lit(10).minutes).on(col('proctime')).alias("w"))
 
-# Tumbling Row-count Window (assuming a processing-time attribute "proctime")
+# 滚动 Row-count 窗口 (假设存在处理时间属性 "proctime")
 .window(Tumble.over(row_interval(10)).on(col('proctime')).alias("w"))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-#### Slide (Sliding Windows)
+#### Slide (滑动窗口)
 
 滑动窗口具有固定大小并按指定的滑动间隔滑动。如果滑动间隔小于窗口大小，则滑动窗口重叠。因此，行可能分配给多个窗口。例如，15 分钟大小和 5 分钟滑动间隔的滑动窗口将每一行分配给 3 个不同的 15 分钟大小的窗口，以 5 分钟的间隔进行一次计算。滑动窗口可以定义在事件时间、处理时间或行数上。
 
@@ -1721,8 +1735,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1747,19 +1761,19 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```java
-// Sliding Event-time Window
+// 滑动事件时间窗口
 .window(Slide.over(lit(10).minutes())
             .every(lit(5).minutes())
             .on($("rowtime"))
             .as("w"));
 
-// Sliding Processing-time window (assuming a processing-time attribute "proctime")
+// 滑动处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Slide.over(lit(10).minutes())
             .every(lit(5).minutes())
             .on($("proctime"))
             .as("w"));
 
-// Sliding Row-count window (assuming a processing-time attribute "proctime")
+// 滑动 Row-count 窗口 (假设存在处理时间属性 "proctime")
 .window(Slide.over(rowInterval(10)).every(rowInterval(5)).on($("proctime")).as("w"));
 ```
 {{< /tab >}}
@@ -1769,8 +1783,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1795,13 +1809,13 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```scala
-// Sliding Event-time Window
+// 滑动事件时间窗口
 .window(Slide over 10.minutes every 5.minutes on $"rowtime" as $"w")
 
-// Sliding Processing-time window (assuming a processing-time attribute "proctime")
+// 滑动处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Slide over 10.minutes every 5.minutes on $"proctime" as $"w")
 
-// Sliding Row-count window (assuming a processing-time attribute "proctime")
+// 滑动 Row-count 窗口 (假设存在处理时间属性 "proctime")
 .window(Slide over 10.rows every 5.rows on $"proctime" as $"w")
 ```
 {{< /tab >}}
@@ -1811,8 +1825,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1837,21 +1851,21 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```python
-# Sliding Event-time Window
+# 滑动事件时间窗口
 .window(Slide.over(lit(10).minutes).every(lit(5).minutes).on(col('rowtime')).alias("w"))
 
-# Sliding Processing-time window (assuming a processing-time attribute "proctime")
+# 滑动处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Slide.over(lit(10).minutes).every(lit(5).minutes).on(col('proctime')).alias("w"))
 
-# Sliding Row-count window (assuming a processing-time attribute "proctime")
+# 滑动 Row-count 窗口 (假设存在处理时间属性 "proctime")
 .window(Slide.over(row_interval(10)).every(row_interval(5)).on(col('proctime')).alias("w"))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-#### Session (Session Windows)
+#### Session (会话窗口)
 
-会话窗口没有固定的大小，其边界是由不活动的间隔定义的，例如，如果在定义的间隔期内没有事件出现，则会话窗口将关闭。例如，定义30 分钟间隔的会话窗口，当观察到一行在 30 分钟内不活动（否则该行将被添加到现有窗口中）且30 分钟内没有添加新行，窗口会关闭。会话窗口支持事件时间和处理时间。
+会话窗口没有固定的大小，其边界是由不活动的间隔定义的，例如，如果在定义的间隔期内没有事件出现，则会话窗口将关闭。例如，定义 30 分钟间隔的会话窗口，当观察到一行在 30 分钟内不活动（否则该行将被添加到现有窗口中）且 30 分钟内没有添加新行，窗口会关闭。会话窗口支持事件时间和处理时间。
 
 {{< tabs "58943253-807b-4e4c-b068-0dc1b783b7b5" >}}
 {{< tab "Java" >}}
@@ -1860,8 +1874,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1882,10 +1896,10 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```java
-// Session Event-time Window
+// 会话事件时间窗口
 .window(Session.withGap(lit(10).minutes()).on($("rowtime")).as("w"));
 
-// Session Processing-time Window (assuming a processing-time attribute "proctime")
+// 会话处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Session.withGap(lit(10).minutes()).on($("proctime")).as("w"));
 ```
 {{< /tab >}}
@@ -1895,8 +1909,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1917,10 +1931,10 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```scala
-// Session Event-time Window
+// 会话事件时间窗口
 .window(Session withGap 10.minutes on $"rowtime" as $"w")
 
-// Session Processing-time Window (assuming a processing-time attribute "proctime")
+// 会话处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Session withGap 10.minutes on $"proctime" as $"w")
 ```
 {{< /tab >}}
@@ -1930,8 +1944,8 @@ table = input.window([w: GroupWindow].alias("w")) \
 <table class="table table-bordered">
   <thead>
     <tr>
-      <th class="text-left" style="width: 20%">Method</th>
-      <th class="text-left">Description</th>
+      <th class="text-left" style="width: 20%">方法</th>
+      <th class="text-left">描述</th>
     </tr>
   </thead>
 
@@ -1952,10 +1966,10 @@ table = input.window([w: GroupWindow].alias("w")) \
 </table>
 
 ```python
-# Session Event-time Window
+# 会话事件时间窗口
 .window(Session.with_gap(lit(10).minutes).on(col('rowtime')).alias("w"))
 
-# Session Processing-time Window (assuming a processing-time attribute "proctime")
+# 会话处理时间窗口 (假设存在处理时间属性 "proctime")
 .window(Session.with_gap(lit(10).minutes).on(col('proctime')).alias("w"))
 ```
 {{< /tab >}}
@@ -1965,7 +1979,7 @@ table = input.window([w: GroupWindow].alias("w")) \
 
 ### Over Windows
 
-Over window 聚合聚合来自在标准的 SQL（`OVER` 子句），可以在 `SELECT` 查询子句中定义。与在“GROUP BY”子句中指定的 group window 不同， over window 不会折叠行。相反，over window 聚合为每个输入行在其相邻行的范围内计算聚合。
+Over window 聚合来自标准的 SQL（`OVER` 子句），可以在 `SELECT` 查询子句中定义。与在“GROUP BY”子句中指定的 group window 不同， over window 不会折叠行。相反，over window 聚合为每个输入行在其相邻行的范围内计算聚合。
 
 Over windows 使用 `window(w: OverWindow*)` 子句（在 Python API 中使用 `over_window(*OverWindow)`）定义，并通过 `select()` 方法中的别名引用。以下示例显示如何在表上定义 over window 聚合。
 
@@ -1973,22 +1987,22 @@ Over windows 使用 `window(w: OverWindow*)` 子句（在 Python API 中使用 `
 {{< tab "Java" >}}
 ```java
 Table table = input
-  .window([OverWindow w].as("w"))           // define over window with alias w
-  .select($("a"), $("b").sum().over($("w")), $("c").min().over($("w"))); // aggregate over the over window w
+  .window([OverWindow w].as("w"))           // 定义 over window 并指定别名为 w
+  .select($("a"), $("b").sum().over($("w")), $("c").min().over($("w"))); // 在 over window w 上聚合
 ```
 {{< /tab >}}
 {{< tab "Scala" >}}
 ```scala
 val table = input
-  .window([w: OverWindow] as $"w")              // define over window with alias w
-  .select($"a", $"b".sum over $"w", $"c".min over $"w") // aggregate over the over window w
+  .window([w: OverWindow] as $"w")              // 定义 over window 并指定别名为 w
+  .select($"a", $"b".sum over $"w", $"c".min over $"w") //  在 over window w 上聚合
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
 ```python
-# define over window with alias w and aggregate over the over window w
-table = input.over_window([w: OverWindow].alias("w")) \
-    .select(input.a, input.b.sum.over(col('w')), input.c.min.over(col('w')))
+# 定义 over window 并指定别名为 w，在 over window w 上聚合
+table = input.over_window([w: OverWindow].alias("w"))
+    .select(col('a'), col('b').sum.over(col('w')), col('c').min.over(col('w')))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -2145,7 +2159,7 @@ table = input.over_window([w: OverWindow].alias("w")) \
 
 {{< top >}}
 
-### Row-based Operations
+### Row-based 操作
 
 基于行生成多列输出的操作。
 
@@ -2159,19 +2173,14 @@ table = input.over_window([w: OverWindow].alias("w")) \
 使用用户定义的标量函数或内置标量函数执行 map 操作。如果输出类型是复合类型，则输出将被展平。
 
 ```java
+@FunctionHint(input = @DataTypeHint("STRING"), output = @DataTypeHint("ROW<s1 STRING, s2 STRING>"))
 public class MyMapFunction extends ScalarFunction {
     public Row eval(String a) {
         return Row.of(a, "pre-" + a);
     }
-
-    @Override
-    public TypeInformation<?> getResultType(Class<?>[] signature) {
-        return Types.ROW(Types.STRING(), Types.STRING());
-    }
 }
 
-ScalarFunction func = new MyMapFunction();
-tableEnv.registerFunction("func", func);
+tableEnv.createTemporarySystemFunction("func", MyMapFunction.class);
 
 Table table = input
   .map(call("func", $("c")).as("a", "b"));
@@ -2215,9 +2224,9 @@ func = udf(map_function, result_type=DataTypes.ROW(
 table = input.map(func).alias('a', 'b')
 
 # 使用 python 向量化标量函数进行 map 操作
-pandas_func = udf(lambda x: x * 2, result_type=DataTypes.ROW(
-                                                    [DataTypes.FIELD("a", DataTypes.BIGINT()),
-                                                    DataTypes.FIELD("b", DataTypes.BIGINT()))]),
+pandas_func = udf(lambda x: x * 2,
+                  result_type=DataTypes.ROW([DataTypes.FIELD("a", DataTypes.BIGINT()),
+                                             DataTypes.FIELD("b", DataTypes.BIGINT())]),
                   func_type='pandas')
 
 table = input.map(pandas_func).alias('a', 'b')
@@ -2236,6 +2245,7 @@ table = input.map(pandas_func).alias('a', 'b')
 使用表函数执行 `flatMap` 操作。
 
 ```java
+@FunctionHint(input = @DataTypeHint("STRING"), output = @DataTypeHint("ROW<s1 STRING, i INT>"))
 public class MyFlatMapFunction extends TableFunction<Row> {
 
     public void eval(String str) {
@@ -2246,15 +2256,9 @@ public class MyFlatMapFunction extends TableFunction<Row> {
             }
         }
     }
-
-    @Override
-    public TypeInformation<Row> getResultType() {
-        return Types.ROW(Types.STRING(), Types.INT());
-    }
 }
 
-TableFunction func = new MyFlatMapFunction();
-tableEnv.registerFunction("func", func);
+tableEnv.createTemporarySystemFunction("func", MyFlatMapFunction.class);
 
 Table table = input
   .flatMap(call("func", $("c")).as("a", "b"));
@@ -2348,13 +2352,21 @@ public class MyMinMax extends AggregateFunction<Row, MyMinMaxAcc> {
     }
 
     @Override
-    public TypeInformation<Row> getResultType() {
-        return new RowTypeInfo(Types.INT, Types.INT);
+    public TypeInference getTypeInference(DataTypeFactory typeFactory) {
+        return TypeInference.newBuilder()
+                .typedArguments(DataTypes.INT())
+                .accumulatorTypeStrategy(
+                        TypeStrategies.explicit(
+                                DataTypes.STRUCTURED(
+                                        MyMinMaxAcc.class,
+                                        DataTypes.FIELD("min", DataTypes.INT()),
+                                        DataTypes.FIELD("max", DataTypes.INT()))))
+                .outputTypeStrategy(TypeStrategies.explicit(DataTypes.INT()))
+                .build();
     }
 }
 
-AggregateFunction myAggFunc = new MyMinMax();
-tableEnv.registerFunction("myAggFunc", myAggFunc);
+tableEnv.createTemporarySystemFunction("myAggFunc", MyMinMax.class);
 Table table = input
   .groupBy($("key"))
   .aggregate(call("myAggFunc", $("a")).as("x", "y"))
@@ -2390,9 +2402,17 @@ class MyMinMax extends AggregateFunction[Row, MyMinMaxAcc] {
     Row.of(Integer.valueOf(acc.min), Integer.valueOf(acc.max))
   }
 
-  override def getResultType: TypeInformation[Row] = {
-    new RowTypeInfo(Types.INT, Types.INT)
-  }
+  override def getTypeInference(typeFactory: DataTypeFactory): TypeInference =
+    TypeInference.newBuilder
+      .typedArguments(DataTypes.INT)
+      .accumulatorTypeStrategy(
+        TypeStrategies.explicit(
+          DataTypes.STRUCTURED(
+            classOf[MyMinMaxAcc],
+            DataTypes.FIELD("min", DataTypes.INT),
+            DataTypes.FIELD("max", DataTypes.INT))))
+      .outputTypeStrategy(TypeStrategies.explicit(DataTypes.INT))
+      .build
 }
 
 val myAggFunc = new MyMinMax
@@ -2449,9 +2469,9 @@ agg = udaf(function,
            name=str(function.__class__.__name__))
 
 # 使用 python 通用聚合函数进行聚合
-result = t.group_by(t.a) \
+result = t.group_by(col('a')) \
     .aggregate(agg.alias("c", "d")) \
-    .select("a, c, d")
+    .select(col('a'), col('c'), col('d'))
     
 # 使用 python 向量化聚合函数进行聚合
 pandas_udaf = udaf(lambda pd: (pd.b.mean(), pd.b.max()),
@@ -2460,8 +2480,7 @@ pandas_udaf = udaf(lambda pd: (pd.b.mean(), pd.b.max()),
                         DataTypes.FIELD("b", DataTypes.INT())]),
                    func_type="pandas")
 t.aggregate(pandas_udaf.alias("a", "b")) \
-    .select("a, b")
-
+ .select(col('a'), col('b'))
 ```
 
 {{< /tab >}}
@@ -2476,8 +2495,7 @@ t.aggregate(pandas_udaf.alias("a", "b")) \
 {{< tabs "group-window-agg" >}}
 {{< tab "Java" >}}
 ```java
-AggregateFunction myAggFunc = new MyMinMax();
-tableEnv.registerFunction("myAggFunc", myAggFunc);
+tableEnv.createTemporarySystemFunction("myAggFunc", MyMinMax.class);
 
 Table table = input
     .window(Tumble.over(lit(5).minutes())
@@ -2502,20 +2520,22 @@ val table = input
 ```python
 from pyflink.table import DataTypes
 from pyflink.table.udf import AggregateFunction, udaf
+from pyflink.table.expressions import col, lit
+from pyflink.table.window import Tumble
 
 pandas_udaf = udaf(lambda pd: (pd.b.mean(), pd.b.max()),
                    result_type=DataTypes.ROW(
                        [DataTypes.FIELD("a", DataTypes.FLOAT()),
                         DataTypes.FIELD("b", DataTypes.INT())]),
                    func_type="pandas")
-tumble_window = Tumble.over(expr.lit(1).hours) \
-    .on(expr.col("rowtime")) \
+tumble_window = Tumble.over(lit(1).hours) \
+    .on(col("rowtime")) \
     .alias("w")
-t.select(t.b, t.rowtime) \
+t.select(col('b'), col('rowtime')) \
     .window(tumble_window) \
-    .group_by("w") \
+    .group_by(col("w")) \
     .aggregate(pandas_udaf.alias("d", "e")) \
-    .select("w.rowtime, d, e")
+    .select(col('w').rowtime, col('d'), col('e'))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -2527,7 +2547,7 @@ t.select(t.b, t.rowtime) \
 
 和 **GroupBy Aggregation** 类似。使用运行中的表之后的聚合算子对分组键上的行进行分组，以按组聚合行。和 AggregateFunction 的不同之处在于，TableAggregateFunction 的每个分组可能返回0或多条记录。你必须使用 select 子句关闭 `flatAggregate`。并且 select 子句不支持聚合函数。
 
-除了使用 emitValue 输出结果，你还可以使用 emitUpdateWithRetract 方法。和 emitValue 不同的是，emitUpdateWithRetract 用于下发已更新的值。此方法在retract 模式下增量输出数据，例如，一旦有更新，我们必须在发送新的更新记录之前收回旧记录。如果在表聚合函数中定义了这两个方法，则将优先使用 emitUpdateWithRetract 方法而不是 emitValue 方法，这是因为该方法可以增量输出值，因此被视为比 emitValue 方法更有效。
+除了使用 `emitValue` 输出结果，你还可以使用 `emitUpdateWithRetract` 方法。和 `emitValue` 不同的是，`emitUpdateWithRetract` 用于下发已更新的值。此方法在 retract 模式下增量输出数据，例如，一旦有更新，我们必须在发送新的更新记录之前收回旧记录。如果在表聚合函数中定义了这两个方法，则将优先使用 `emitUpdateWithRetract` 方法而不是 `emitValue` 方法，这是因为该方法可以增量输出值，因此被视为比 `emitValue` 方法更有效。
 
 ```java
 /**
@@ -2579,7 +2599,7 @@ public class Top2 extends TableAggregateFunction<Tuple2<Integer, Integer>, Top2A
     }
 }
 
-tEnv.registerFunction("top2", new Top2());
+tEnv.createTemporarySystemFunction("top2", Top2.class);
 Table orders = tableEnv.from("Orders");
 Table result = orders
     .groupBy($("key"))
@@ -2591,12 +2611,12 @@ Table result = orders
 
 和 **GroupBy Aggregation** 类似。使用运行中的表之后的聚合运算符对分组键上的行进行分组，以按组聚合行。和 AggregateFunction 的不同之处在于，TableAggregateFunction 的每个分组可能返回0或多条记录。你必须使用 select 子句关闭 `flatAggregate`。并且 select 子句不支持聚合函数。
 
-除了使用 emitValue 输出结果，你还可以使用 emitUpdateWithRetract 方法。和 emitValue 不同的是，emitUpdateWithRetract 用于发出已更新的值。此方法在retract 模式下增量输出数据，例如，一旦有更新，我们必须在发送新的更新记录之前收回旧记录。如果在表聚合函数中定义了这两个方法，则将优先使用 emitUpdateWithRetract 方法而不是 emitValue 方法，这是因为该方法可以增量输出值，因此被视为比 emitValue 方法更有效。
+除了使用 `emitValue` 输出结果，你还可以使用 `emitUpdateWithRetract` 方法。和 `emitValue` 不同的是，`emitUpdateWithRetract` 用于发出已更新的值。此方法在 retract 模式下增量输出数据，例如，一旦有更新，我们必须在发送新的更新记录之前收回旧记录。如果在表聚合函数中定义了这两个方法，则将优先使用 `emitUpdateWithRetract` 方法而不是 `emitValue` 方法，这是因为该方法可以增量输出值，因此被视为比 `emitValue` 方法更有效。
 
 ```scala
 import java.lang.{Integer => JInteger}
-import org.apache.flink.table.api.Types
 import org.apache.flink.table.functions.TableAggregateFunction
+import org.apache.flink.table.legacy.api.Types
 
 /**
  * Top2 Accumulator。
@@ -2665,6 +2685,7 @@ val result = orders
 from pyflink.common import Row
 from pyflink.table.udf import TableAggregateFunction, udtaf
 from pyflink.table import DataTypes
+from pyflink.table.expressions import col
 
 class Top2(TableAggregateFunction):
 
@@ -2700,18 +2721,18 @@ t = t_env.from_elements([(1, 'Hi', 'Hello'),
                               (3, 'Hi', 'hi'),
                               (5, 'Hi2', 'hi'),
                               (7, 'Hi', 'Hello'),
-                              (2, 'Hi', 'Hello')], ['a', 'b', 'c'])
-result = t.select(t.a, t.c) \
-    .group_by(t.c) \
+                              (2, 'Hi', 'Hello')],
+                        ['a', 'b', 'c'])
+result = t.select(col('a'), col('c')) \
+    .group_by(col('c')) \
     .flat_aggregate(mytop) \
-    .select(t.a) \
+    .select(col('a')) \
     .flat_aggregate(mytop.alias("b"))
-
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< query_state_warning >}}
+{{< query_state_warning_zh >}}
 
 <a name="data-types"></a>
 数据类型

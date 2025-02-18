@@ -24,16 +24,22 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.api.config.TableConfigOptions;
 import org.apache.flink.table.api.internal.TableEnvironmentImpl;
 import org.apache.flink.table.catalog.Catalog;
+import org.apache.flink.table.catalog.CatalogDescriptor;
+import org.apache.flink.table.catalog.CatalogStore;
 import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.expressions.Expression;
 import org.apache.flink.table.functions.ScalarFunction;
 import org.apache.flink.table.functions.UserDefinedFunction;
 import org.apache.flink.table.module.Module;
 import org.apache.flink.table.module.ModuleEntry;
+import org.apache.flink.table.resource.ResourceUri;
 import org.apache.flink.table.types.AbstractDataType;
+
+import javax.annotation.Nullable;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -383,8 +389,22 @@ public interface TableEnvironment {
      *
      * @param catalogName The name under which the catalog will be registered.
      * @param catalog The catalog to register.
+     * @deprecated Use {@link #createCatalog(String, CatalogDescriptor)} instead. The new method
+     *     uses a {@link CatalogDescriptor} to initialize the catalog instance and store the {@link
+     *     CatalogDescriptor} to the {@link CatalogStore}.
      */
+    @Deprecated
     void registerCatalog(String catalogName, Catalog catalog);
+
+    /**
+     * Creates a {@link Catalog} using the provided {@link CatalogDescriptor}. All table registered
+     * in the {@link Catalog} can be accessed. The {@link CatalogDescriptor} will be persisted into
+     * the {@link CatalogStore}.
+     *
+     * @param catalogName The name under which the catalog will be created
+     * @param catalogDescriptor The catalog descriptor for creating catalog
+     */
+    void createCatalog(String catalogName, CatalogDescriptor catalogDescriptor);
 
     /**
      * Gets a registered {@link Catalog} by name.
@@ -516,13 +536,53 @@ public interface TableEnvironment {
             boolean ignoreIfExists);
 
     /**
-     * Drops a catalog function registered in the given path.
+     * Registers a {@link UserDefinedFunction} class as a catalog function in the given path by the
+     * specific class name and user defined resource uri.
      *
-     * @param path The path under which the function has been registered. See also the {@link
+     * <p>Compared to {@link #createFunction(String, Class)}, this method allows registering a user
+     * defined function by only providing a full path class name and a list of resources that
+     * contain the implementation of the function along with its dependencies. Users don't need to
+     * initialize the function instance in advance. The resource file can be a local or remote JAR
+     * file.
+     *
+     * <p>Compared to system functions with a globally defined name, catalog functions are always
+     * (implicitly or explicitly) identified by a catalog and database.
+     *
+     * <p>There must not be another function (temporary or permanent) registered under the same
+     * path.
+     *
+     * @param path The path under which the function will be registered. See also the {@link
      *     TableEnvironment} class description for the format of the path.
-     * @return true if a function existed in the given path and was removed
+     * @param className The class name of UDF to be registered.
+     * @param resourceUris The list of udf resource uris in local or remote.
      */
-    boolean dropFunction(String path);
+    void createFunction(String path, String className, List<ResourceUri> resourceUris);
+
+    /**
+     * Registers a {@link UserDefinedFunction} class as a catalog function in the given path by the
+     * specific class name and user defined resource uri.
+     *
+     * <p>Compared to {@link #createFunction(String, Class)}, this method allows registering a user
+     * defined function by only providing a full path class name and a list of resources that
+     * contain the implementation of the function along with its dependencies. Users don't need to
+     * initialize the function instance in advance. The resource file can be a local or remote JAR
+     * file.
+     *
+     * <p>Compared to system functions with a globally defined name, catalog functions are always
+     * (implicitly or explicitly) identified by a catalog and database.
+     *
+     * <p>There must not be another function (temporary or permanent) registered under the same
+     * path.
+     *
+     * @param path The path under which the function will be registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param className The class name of UDF to be registered.
+     * @param resourceUris The list of udf resource uris in local or remote.
+     * @param ignoreIfExists If a function exists under the given path and this flag is set, no
+     *     operation is executed. An exception is thrown otherwise.
+     */
+    void createFunction(
+            String path, String className, List<ResourceUri> resourceUris, boolean ignoreIfExists);
 
     /**
      * Registers a {@link UserDefinedFunction} class as a temporary catalog function.
@@ -562,6 +622,61 @@ public interface TableEnvironment {
      *     implementation.
      */
     void createTemporaryFunction(String path, UserDefinedFunction functionInstance);
+
+    /**
+     * Registers a {@link UserDefinedFunction} class as a temporary catalog function in the given
+     * path by the specific class name and user defined resource uri.
+     *
+     * <p>Compared to {@link #createTemporaryFunction(String, Class)}, this method allows
+     * registering a user defined function by only providing a full path class name and a list of
+     * resources that contain the implementation of the function along with its dependencies. Users
+     * don't need to initialize the function instance in advance. The resource file can be a local
+     * or remote JAR file.
+     *
+     * <p>Compared to {@link #createTemporarySystemFunction(String, String, List)} with a globally
+     * defined name, catalog functions are always (implicitly or explicitly) identified by a catalog
+     * and database.
+     *
+     * <p>Temporary functions can shadow permanent ones. If a permanent function under a given name
+     * exists, it will be inaccessible in the current session. To make the permanent function
+     * available again one can drop the corresponding temporary function.
+     *
+     * @param path The path under which the function will be registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param className The class name of UDF to be registered.
+     * @param resourceUris The list udf resource uri in local or remote.
+     */
+    void createTemporaryFunction(String path, String className, List<ResourceUri> resourceUris);
+
+    /**
+     * Registers a {@link UserDefinedFunction} class as a temporary system function by the specific
+     * class name and user defined resource uri.
+     *
+     * <p>Compared to {@link #createTemporaryFunction(String, Class)}, this method allows
+     * registering a user defined function by only providing a full path class name and a list of
+     * resources that contain the implementation of the function along with its dependencies. Users
+     * don't need to initialize the function instance in advance. The resource file can be a local
+     * or remote JAR file.
+     *
+     * <p>Temporary functions can shadow permanent ones. If a permanent function under a given name
+     * exists, it will be inaccessible in the current session. To make the permanent function
+     * available again one can drop the corresponding temporary system function.
+     *
+     * @param name The name under which the function will be registered globally.
+     * @param className The class name of UDF to be registered.
+     * @param resourceUris The list of udf resource uris in local or remote.
+     */
+    void createTemporarySystemFunction(
+            String name, String className, List<ResourceUri> resourceUris);
+
+    /**
+     * Drops a catalog function registered in the given path.
+     *
+     * @param path The path under which the function has been registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @return true if a function existed in the given path and was removed
+     */
+    boolean dropFunction(String path);
 
     /**
      * Drops a temporary catalog function registered in the given path.
@@ -604,6 +719,37 @@ public interface TableEnvironment {
     void createTemporaryTable(String path, TableDescriptor descriptor);
 
     /**
+     * Registers the given {@link TableDescriptor} as a temporary catalog table.
+     *
+     * <p>The {@link TableDescriptor descriptor} is converted into a {@link CatalogTable} and stored
+     * in the catalog.
+     *
+     * <p>Temporary objects can shadow permanent ones. If a permanent object in a given path exists,
+     * it will be inaccessible in the current session. To make the permanent object available again
+     * one can drop the corresponding temporary object.
+     *
+     * <p>Examples:
+     *
+     * <pre>{@code
+     * tEnv.createTemporaryTable("MyTable", TableDescriptor.forConnector("datagen")
+     *   .schema(Schema.newBuilder()
+     *     .column("f0", DataTypes.STRING())
+     *     .build())
+     *   .option(DataGenOptions.ROWS_PER_SECOND, 10)
+     *   .option("fields.f0.kind", "random")
+     *   .build(),
+     *  true);
+     * }</pre>
+     *
+     * @param path The path under which the table will be registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param descriptor Template for creating a {@link CatalogTable} instance.
+     * @param ignoreIfExists If a table exists under the given path and this flag is set, no
+     *     operation is executed. An exception is thrown otherwise.
+     */
+    void createTemporaryTable(String path, TableDescriptor descriptor, boolean ignoreIfExists);
+
+    /**
      * Registers the given {@link TableDescriptor} as a catalog table.
      *
      * <p>The {@link TableDescriptor descriptor} is converted into a {@link CatalogTable} and stored
@@ -629,6 +775,38 @@ public interface TableEnvironment {
      * @param descriptor Template for creating a {@link CatalogTable} instance.
      */
     void createTable(String path, TableDescriptor descriptor);
+
+    /**
+     * Registers the given {@link TableDescriptor} as a catalog table.
+     *
+     * <p>The {@link TableDescriptor descriptor} is converted into a {@link CatalogTable} and stored
+     * in the catalog.
+     *
+     * <p>If the table should not be permanently stored in a catalog, use {@link
+     * #createTemporaryTable(String, TableDescriptor, boolean)} instead.
+     *
+     * <p>Examples:
+     *
+     * <pre>{@code
+     * tEnv.createTable("MyTable", TableDescriptor.forConnector("datagen")
+     *   .schema(Schema.newBuilder()
+     *     .column("f0", DataTypes.STRING())
+     *     .build())
+     *   .option(DataGenOptions.ROWS_PER_SECOND, 10)
+     *   .option("fields.f0.kind", "random")
+     *   .build(),
+     *  true);
+     * }</pre>
+     *
+     * @param path The path under which the table will be registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param descriptor Template for creating a {@link CatalogTable} instance.
+     * @param ignoreIfExists If a table exists under the given path and this flag is set, no
+     *     operation is executed. An exception is thrown otherwise.
+     * @return true if table was created in the given path, false if a permanent object already
+     *     exists in the given path.
+     */
+    boolean createTable(String path, TableDescriptor descriptor, boolean ignoreIfExists);
 
     /**
      * Registers a {@link Table} under a unique name in the TableEnvironment's catalog. Registered
@@ -657,6 +835,36 @@ public interface TableEnvironment {
      * @param view The view to register.
      */
     void createTemporaryView(String path, Table view);
+
+    /**
+     * Registers a {@link Table} API object as a view similar to SQL views.
+     *
+     * <p>Temporary objects can shadow permanent ones. If a temporary object in a given path exists,
+     * the permanent one will be inaccessible in the current session. To make the permanent object
+     * available again one can drop the corresponding temporary object.
+     *
+     * @param path The path under which the view will be registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param view The view to register.
+     */
+    void createView(String path, Table view);
+
+    /**
+     * Registers a {@link Table} API object as a view similar to SQL views.
+     *
+     * <p>Temporary objects can shadow permanent ones. If a temporary object in a given path exists,
+     * the permanent one will be inaccessible in the current session. To make the permanent object
+     * available again one can drop the corresponding temporary object.
+     *
+     * @param path The path under which the view will be registered. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param view The view to register.
+     * @param ignoreIfExists If a view or a table exists and the given flag is set, no operation is
+     *     executed. An exception is thrown otherwise.
+     * @return true if view was created in the given path, false if a permanent object already
+     *     exists in the given path.
+     */
+    boolean createView(String path, Table view, boolean ignoreIfExists);
 
     /**
      * Scans a registered table and returns the resulting {@link Table}.
@@ -850,9 +1058,44 @@ public interface TableEnvironment {
      * <p>If a permanent table with a given path exists, it will be used from now on for any queries
      * that reference this path.
      *
+     * @param path The given path under which the temporary table will be dropped. See also the
+     *     {@link TableEnvironment} class description for the format of the path.
      * @return true if a table existed in the given path and was removed
      */
     boolean dropTemporaryTable(String path);
+
+    /**
+     * Drops a table registered in the given path.
+     *
+     * <p>This method can only drop permanent objects. Temporary objects can shadow permanent ones.
+     * If a temporary object exists in a given path, make sure to drop the temporary object first
+     * using {@link #dropTemporaryTable}.
+     *
+     * <p>Compared to SQL, this method will not throw an error if the table does not exist. Use
+     * {@link #dropTable(java.lang.String, boolean)} to change the default behavior.
+     *
+     * @param path The given path under which the table will be dropped. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @return true if table existed in the given path and was dropped, false if table didn't exist
+     *     in the given path.
+     */
+    boolean dropTable(String path);
+
+    /**
+     * Drops a table registered in the given path.
+     *
+     * <p>This method can only drop permanent objects. Temporary objects can shadow permanent ones.
+     * If a temporary object exists in a given path, make sure to drop the temporary object first
+     * using {@link #dropTemporaryTable}.
+     *
+     * @param path The given path under which the given table will be dropped. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param ignoreIfNotExists If false exception will be thrown if the view to drop does not
+     *     exist.
+     * @return true if table existed in the given path and was dropped, false if table didn't exist
+     *     in the given path.
+     */
+    boolean dropTable(String path, boolean ignoreIfNotExists);
 
     /**
      * Drops a temporary view registered in the given path.
@@ -860,9 +1103,44 @@ public interface TableEnvironment {
      * <p>If a permanent table or view with a given path exists, it will be used from now on for any
      * queries that reference this path.
      *
+     * @param path The given path under which the temporary view will be dropped. See also the
+     *     {@link TableEnvironment} class description for the format of the path.
      * @return true if a view existed in the given path and was removed
      */
     boolean dropTemporaryView(String path);
+
+    /**
+     * Drops a view registered in the given path.
+     *
+     * <p>This method can only drop permanent objects. Temporary objects can shadow permanent ones.
+     * If a temporary object exists in a given path, make sure to drop the temporary object first
+     * using {@link #dropTemporaryView}.
+     *
+     * <p>Compared to SQL, this method will not throw an error if the view does not exist. Use
+     * {@link #dropView(java.lang.String, boolean)} to change the default behavior.
+     *
+     * @param path The given path under which the view will be dropped. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @return true if view existed in the given path and was dropped, false if view didn't exist in
+     *     the given path.
+     */
+    boolean dropView(String path);
+
+    /**
+     * Drops a view registered in the given path.
+     *
+     * <p>This method can only drop permanent objects. Temporary objects can shadow permanent ones.
+     * If a temporary object exists in a given path, make sure to drop the temporary object first
+     * using {@link #dropTemporaryView}.
+     *
+     * @param path The given path under which the view will be dropped. See also the {@link
+     *     TableEnvironment} class description for the format of the path.
+     * @param ignoreIfNotExists If false exception will be thrown if the view to drop does not
+     *     exist.
+     * @return true if view existed in the given path and was dropped, false if view didn't exist in
+     *     the given path and ignoreIfNotExists was true.
+     */
+    boolean dropView(String path, boolean ignoreIfNotExists);
 
     /**
      * Returns the AST of the specified statement and the execution plan to compute the result of
@@ -873,7 +1151,21 @@ public interface TableEnvironment {
      *     estimated cost, changelog mode for streaming, displaying execution plan in json format
      * @return AST and the execution plan.
      */
-    String explainSql(String statement, ExplainDetail... extraDetails);
+    default String explainSql(String statement, ExplainDetail... extraDetails) {
+        return explainSql(statement, ExplainFormat.TEXT, extraDetails);
+    }
+
+    /**
+     * Returns the AST of the specified statement and the execution plan to compute the result of
+     * the given statement.
+     *
+     * @param statement The statement for which the AST and execution plan will be returned.
+     * @param format The output format of explained plan.
+     * @param extraDetails The extra explain details which the explain result should include, e.g.
+     *     estimated cost, changelog mode for streaming, displaying execution plan in json format
+     * @return AST and the execution plan.
+     */
+    String explainSql(String statement, ExplainFormat format, ExplainDetail... extraDetails);
 
     /**
      * Returns completion hints for the given statement at the given cursor position. The completion
@@ -999,10 +1291,13 @@ public interface TableEnvironment {
      *     </tbody>
      * </table>
      *
+     * <p>You can unset the current catalog by passing a null value. If the current catalog is
+     * unset, you need to use fully qualified identifiers.
+     *
      * @param catalogName The name of the catalog to set as the current default catalog.
      * @see TableEnvironment#useDatabase(String)
      */
-    void useCatalog(String catalogName);
+    void useCatalog(@Nullable String catalogName);
 
     /**
      * Gets the current default database name of the running session.
@@ -1068,10 +1363,13 @@ public interface TableEnvironment {
      *     </tbody>
      * </table>
      *
+     * <p>You can unset the current database by passing a null value. If the current database is
+     * unset, you need to qualify identifiers at least with the database name.
+     *
      * @param databaseName The name of the database to set as the current database.
      * @see TableEnvironment#useCatalog(String)
      */
-    void useDatabase(String databaseName);
+    void useDatabase(@Nullable String databaseName);
 
     /** Returns the table config that defines the runtime behavior of the Table API. */
     TableConfig getConfig();

@@ -29,7 +29,9 @@ import org.apache.flink.table.types.UnresolvedDataType;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.CollectionUtil;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -39,7 +41,6 @@ import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,13 +49,12 @@ import java.util.stream.Stream;
 import static org.apache.flink.table.api.Expressions.call;
 import static org.apache.flink.table.api.Expressions.range;
 import static org.apache.flink.table.api.Expressions.withColumns;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** End to end tests for {@link org.apache.flink.table.api.TableEnvironment#fromValues}. */
-public class ValuesITCase extends StreamingTestBase {
+class ValuesITCase extends StreamingTestBase {
     @Test
-    public void testTypeConversions() throws Exception {
+    void testTypeConversions() throws Exception {
         List<Row> data =
                 Arrays.asList(
                         Row.of(
@@ -183,11 +183,11 @@ public class ValuesITCase extends StreamingTestBase {
                                         })));
 
         List<Row> actual = TestCollectionTableFactory.getResult();
-        assertThat(new HashSet<>(actual), equalTo(new HashSet<>(expected)));
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
     }
 
     @Test
-    public void testAllTypes() throws Exception {
+    void testAllTypes() throws Exception {
         List<Row> data =
                 Arrays.asList(
                         rowWithNestedRow(
@@ -267,11 +267,11 @@ public class ValuesITCase extends StreamingTestBase {
         t.executeInsert("SinkTable").await();
 
         List<Row> actual = TestCollectionTableFactory.getResult();
-        assertThat(new HashSet<>(actual), equalTo(new HashSet<>(data)));
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(data);
     }
 
     @Test
-    public void testProjectionWithValues() throws Exception {
+    void testProjectionWithValues() throws Exception {
         List<Row> data =
                 Arrays.asList(
                         Row.of(
@@ -325,23 +325,28 @@ public class ValuesITCase extends StreamingTestBase {
                         Row.of(
                                 "2,2,2,2,2.2,2.2,2.2,false,02:02:02,0002-02-02,0002-02-02T02:02:02.000000002,"
                                         + "1970-01-01T00:00:00.002Z,2,[2],[2.2],{2=2.2}"));
-        assertThat(new HashSet<>(actual), equalTo(new HashSet<>(expected)));
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
     }
 
-    @Test
-    public void testRegisteringValuesWithComplexTypes() {
+    @ParameterizedTest(name = "{index}: isTemporaryView ({0})")
+    @ValueSource(booleans = {true, false})
+    void testRegisteringValuesWithComplexTypes(final boolean isTemporaryView) {
         Map<Integer, Integer> mapData = new HashMap<>();
         mapData.put(1, 1);
         mapData.put(2, 2);
 
         Row row = Row.of(mapData, Row.of(1, 2, 3), new Integer[] {1, 2});
         Table values = tEnv().fromValues(Collections.singletonList(row));
-        tEnv().createTemporaryView("values_t", values);
+        final String path = "values_t";
+        if (isTemporaryView) {
+            tEnv().createTemporaryView(path, values);
+        } else {
+            tEnv().createView(path, values);
+        }
         List<Row> results =
-                CollectionUtil.iteratorToList(
-                        tEnv().executeSql("select * from values_t").collect());
+                CollectionUtil.iteratorToList(tEnv().executeSql("select * from " + path).collect());
 
-        assertThat(results, equalTo(Collections.singletonList(row)));
+        assertThat(results).containsExactly(row);
     }
 
     /**
@@ -370,14 +375,14 @@ public class ValuesITCase extends StreamingTestBase {
             })
     public static class CustomScalarFunction extends ScalarFunction {
         public String eval(
-                byte tinyint,
-                short smallInt,
-                int integer,
-                long bigint,
-                float floating,
-                double doublePrecision,
+                Byte tinyint,
+                Short smallInt,
+                Integer integer,
+                Long bigint,
+                Float floating,
+                Double doublePrecision,
                 BigDecimal decimal,
-                boolean bool,
+                Boolean bool,
                 LocalTime time,
                 LocalDate date,
                 //				Period dateTimeInteraval, TODO TIMESTAMP WITH TIMEZONE not supported yet

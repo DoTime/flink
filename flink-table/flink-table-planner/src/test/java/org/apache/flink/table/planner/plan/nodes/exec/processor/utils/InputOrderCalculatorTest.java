@@ -22,19 +22,21 @@ import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.TestingBatchExecNode;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 /** Tests for {@link InputOrderCalculator}. */
-public class InputOrderCalculatorTest {
+class InputOrderCalculatorTest {
 
     @Test
-    public void testCheckPipelinedPath() {
+    void testCheckPipelinedPath() {
         // P = InputProperty.DamBehavior.PIPELINED, E = InputProperty.DamBehavior.END_INPUT B =
         // InputProperty.DamBehavior.BLOCKING
         //
@@ -60,16 +62,19 @@ public class InputOrderCalculatorTest {
         nodes[4].addInput(nodes[3]);
         nodes[6].addInput(nodes[5]);
 
-        Assert.assertFalse(
-                InputOrderCalculator.checkPipelinedPath(
-                        nodes[4], new HashSet<>(Arrays.asList(nodes[2], nodes[5], nodes[6]))));
-        Assert.assertTrue(
-                InputOrderCalculator.checkPipelinedPath(
-                        nodes[4], new HashSet<>(Arrays.asList(nodes[0], nodes[2]))));
+        assertThat(
+                        InputOrderCalculator.checkPipelinedPath(
+                                nodes[4],
+                                new HashSet<>(Arrays.asList(nodes[2], nodes[5], nodes[6]))))
+                .isFalse();
+        assertThat(
+                        InputOrderCalculator.checkPipelinedPath(
+                                nodes[4], new HashSet<>(Arrays.asList(nodes[0], nodes[2]))))
+                .isTrue();
     }
 
     @Test
-    public void testCalculateInputOrder() {
+    void testCalculateInputOrder() {
         // P = InputProperty.DamBehavior.PIPELINED, B = InputProperty.DamBehavior.BLOCKING
         // P1 = PIPELINED + priority 1
         //
@@ -115,14 +120,14 @@ public class InputOrderCalculatorTest {
                         new HashSet<>(Arrays.asList(nodes[1], nodes[3], nodes[5])),
                         InputProperty.DamBehavior.BLOCKING);
         Map<ExecNode<?>, Integer> result = calculator.calculate();
-        Assert.assertEquals(3, result.size());
-        Assert.assertEquals(0, result.get(nodes[3]).intValue());
-        Assert.assertEquals(1, result.get(nodes[1]).intValue());
-        Assert.assertEquals(2, result.get(nodes[5]).intValue());
+        assertThat(result).hasSize(3);
+        assertThat(result.get(nodes[3]).intValue()).isEqualTo(0);
+        assertThat(result.get(nodes[1]).intValue()).isEqualTo(1);
+        assertThat(result.get(nodes[5]).intValue()).isEqualTo(2);
     }
 
     @Test
-    public void testCalculateInputOrderWithRelatedBoundaries() {
+    void testCalculateInputOrderWithRelatedBoundaries() {
         // P = InputProperty.DamBehavior.PIPELINED, B = InputProperty.DamBehavior.BLOCKING
         // P1 = PIPELINED + priority 1
         //
@@ -151,15 +156,15 @@ public class InputOrderCalculatorTest {
                         new HashSet<>(Arrays.asList(nodes[0], nodes[1], nodes[3], nodes[6])),
                         InputProperty.DamBehavior.BLOCKING);
         Map<ExecNode<?>, Integer> result = calculator.calculate();
-        Assert.assertEquals(4, result.size());
-        Assert.assertEquals(1, result.get(nodes[0]).intValue());
-        Assert.assertEquals(1, result.get(nodes[1]).intValue());
-        Assert.assertEquals(2, result.get(nodes[3]).intValue());
-        Assert.assertEquals(0, result.get(nodes[6]).intValue());
+        assertThat(result).hasSize(4);
+        assertThat(result.get(nodes[0]).intValue()).isEqualTo(1);
+        assertThat(result.get(nodes[1]).intValue()).isEqualTo(1);
+        assertThat(result.get(nodes[3]).intValue()).isEqualTo(2);
+        assertThat(result.get(nodes[6]).intValue()).isEqualTo(0);
     }
 
     @Test
-    public void testCalculateInputOrderWithUnaffectedRelatedBoundaries() {
+    void testCalculateInputOrderWithUnaffectedRelatedBoundaries() {
         // P = InputProperty.DamBehavior.PIPELINED, B = InputProperty.DamBehavior.BLOCKING
         // P1 = PIPELINED + priority 1
         //
@@ -195,15 +200,15 @@ public class InputOrderCalculatorTest {
                         new HashSet<>(Arrays.asList(nodes[1], nodes[3], nodes[5], nodes[7])),
                         InputProperty.DamBehavior.BLOCKING);
         Map<ExecNode<?>, Integer> result = calculator.calculate();
-        Assert.assertEquals(4, result.size());
-        Assert.assertEquals(0, result.get(nodes[1]).intValue());
-        Assert.assertEquals(1, result.get(nodes[3]).intValue());
-        Assert.assertEquals(1, result.get(nodes[5]).intValue());
-        Assert.assertEquals(0, result.get(nodes[7]).intValue());
+        assertThat(result).hasSize(4);
+        assertThat(result.get(nodes[1]).intValue()).isEqualTo(0);
+        assertThat(result.get(nodes[3]).intValue()).isEqualTo(1);
+        assertThat(result.get(nodes[5]).intValue()).isEqualTo(1);
+        assertThat(result.get(nodes[7]).intValue()).isEqualTo(0);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void testCalculateInputOrderWithLoop() {
+    @Test
+    void testCalculateInputOrderWithLoop() {
         TestingBatchExecNode a = new TestingBatchExecNode("TestingBatchExecNode0");
         TestingBatchExecNode b = new TestingBatchExecNode("TestingBatchExecNode1");
         for (int i = 0; i < 2; i++) {
@@ -213,6 +218,7 @@ public class InputOrderCalculatorTest {
         InputOrderCalculator calculator =
                 new InputOrderCalculator(
                         b, Collections.emptySet(), InputProperty.DamBehavior.BLOCKING);
-        calculator.calculate();
+
+        assertThatThrownBy(calculator::calculate).isInstanceOf(IllegalStateException.class);
     }
 }

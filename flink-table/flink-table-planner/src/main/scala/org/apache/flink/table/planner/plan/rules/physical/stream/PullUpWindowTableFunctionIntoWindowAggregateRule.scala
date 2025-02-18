@@ -15,23 +15,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.plan.rules.physical.stream
 
 import org.apache.flink.table.planner.plan.`trait`.FlinkRelDistribution
-import org.apache.flink.table.planner.plan.logical.TimeAttributeWindowingStrategy
+import org.apache.flink.table.planner.plan.logical.{SessionWindowSpec, TimeAttributeWindowingStrategy, WindowSpec}
 import org.apache.flink.table.planner.plan.metadata.FlinkRelMetadataQuery
 import org.apache.flink.table.planner.plan.nodes.FlinkConventions
 import org.apache.flink.table.planner.plan.nodes.physical.stream.{StreamPhysicalCalc, StreamPhysicalExchange, StreamPhysicalWindowAggregate, StreamPhysicalWindowTableFunction}
 import org.apache.flink.table.planner.plan.utils.WindowUtil
 import org.apache.flink.table.planner.plan.utils.WindowUtil.buildNewProgramWithoutWindowColumns
+import org.apache.flink.util.Preconditions.checkArgument
 
-import org.apache.calcite.plan.RelOptRule.{any, operand}
 import org.apache.calcite.plan.{RelOptRule, RelOptRuleCall}
+import org.apache.calcite.plan.RelOptRule.{any, operand}
+import org.apache.calcite.plan.volcano.RelSubset
 import org.apache.calcite.rel.{RelCollations, RelNode}
+import org.apache.calcite.rex.RexInputRef
 import org.apache.calcite.util.ImmutableBitSet
 
+import scala.annotation.tailrec
 import scala.collection.JavaConversions._
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Planner rule that tries to pull up [[StreamPhysicalWindowTableFunction]] into a
@@ -39,11 +43,15 @@ import scala.collection.JavaConversions._
  */
 class PullUpWindowTableFunctionIntoWindowAggregateRule
   extends RelOptRule(
-    operand(classOf[StreamPhysicalWindowAggregate],
-      operand(classOf[StreamPhysicalExchange],
-        operand(classOf[StreamPhysicalCalc],
-          operand(classOf[StreamPhysicalWindowTableFunction], any())))),
-    "PullUpWindowTableFunctionIntoWindowAggregateRule"){
+    operand(
+      classOf[StreamPhysicalWindowAggregate],
+      operand(
+        classOf[StreamPhysicalExchange],
+        operand(
+          classOf[StreamPhysicalCalc],
+          operand(classOf[StreamPhysicalWindowTableFunction], any())))
+    ),
+    "PullUpWindowTableFunctionIntoWindowAggregateRule") {
 
   override def matches(call: RelOptRuleCall): Boolean = {
     val windowAgg: StreamPhysicalWindowAggregate = call.rel(0)
@@ -59,8 +67,8 @@ class PullUpWindowTableFunctionIntoWindowAggregateRule
     val aggInputWindowProps = fmq.getRelWindowProperties(calc).getWindowColumns
     // aggregate call shouldn't be on window columns
     // TODO: this can be supported in the future by referencing them as a RexFieldVariable
-    windowAgg.aggCalls.forall { call =>
-      aggInputWindowProps.intersect(ImmutableBitSet.of(call.getArgList)).isEmpty
+    windowAgg.aggCalls.forall {
+      call => aggInputWindowProps.intersect(ImmutableBitSet.of(call.getArgList)).isEmpty
     }
   }
 
@@ -70,7 +78,12 @@ class PullUpWindowTableFunctionIntoWindowAggregateRule
     val windowTVF: StreamPhysicalWindowTableFunction = call.rel(3)
     val fmq = FlinkRelMetadataQuery.reuseOrCreate(windowAgg.getCluster.getMetadataQuery)
     val cluster = windowAgg.getCluster
-    val input = windowTVF.getInput
+    val input = unwrapRel(windowTVF.getInput) match {
+      case exchange: StreamPhysicalExchange =>
+        exchange.getInput
+      case other =>
+        other
+    }
     val inputRowType = input.getRowType
 
     val requiredInputTraitSet = input.getTraitSet.replace(FlinkConventions.STREAM_PHYSICAL)
@@ -112,23 +125,25 @@ class PullUpWindowTableFunctionIntoWindowAggregateRule
     // -----------------------------------------------------------------------------
     //  3. Adjust aggregate arguments index and construct new window aggregate node
     // -----------------------------------------------------------------------------
+    val newWindowSpec = updateWindowSpec(windowTVF.windowing.getWindow, newCalc)
     val newWindowing = new TimeAttributeWindowingStrategy(
-      windowTVF.windowing.getWindow,
+      newWindowSpec,
       windowTVF.windowing.getTimeAttributeType,
       timeAttributeIndex)
     val providedTraitSet = windowAgg.getTraitSet.replace(FlinkConventions.STREAM_PHYSICAL)
-    val newAggCalls = windowAgg.aggCalls.map { call =>
-      val newArgList = call.getArgList.map(arg => Int.box(aggInputFieldsShift(arg)))
-      val newFilterArg = if (call.hasFilter) {
-        aggInputFieldsShift(call.filterArg)
-      } else {
-        call.filterArg
-      }
-      val newFiledCollations = call.getCollation.getFieldCollations.map { field =>
-        field.withFieldIndex(aggInputFieldsShift(field.getFieldIndex))
-      }
-      val newCollation = RelCollations.of(newFiledCollations)
-      call.copy(newArgList, newFilterArg, newCollation)
+    val newAggCalls = windowAgg.aggCalls.map {
+      call =>
+        val newArgList = call.getArgList.map(arg => Int.box(aggInputFieldsShift(arg)))
+        val newFilterArg = if (call.hasFilter) {
+          aggInputFieldsShift(call.filterArg)
+        } else {
+          call.filterArg
+        }
+        val newFiledCollations = call.getCollation.getFieldCollations.map {
+          field => field.withFieldIndex(aggInputFieldsShift(field.getFieldIndex))
+        }
+        val newCollation = RelCollations.of(newFiledCollations)
+        call.copy(newArgList, newFilterArg, newCollation)
     }
 
     val newWindowAgg = new StreamPhysicalWindowAggregate(
@@ -141,6 +156,47 @@ class PullUpWindowTableFunctionIntoWindowAggregateRule
       windowAgg.namedWindowProperties)
 
     call.transformTo(newWindowAgg)
+  }
+
+  @tailrec
+  private def unwrapRel(rel: RelNode): RelNode = {
+    rel match {
+      case relSubset: RelSubset =>
+        unwrapRel(relSubset.getOriginal)
+      case _ =>
+        rel
+    }
+  }
+
+  private def updateWindowSpec(oldWindowSpec: WindowSpec, calc: StreamPhysicalCalc): WindowSpec = {
+    oldWindowSpec match {
+      case sessionWindowSpec: SessionWindowSpec =>
+        val windowPartitionKeys = sessionWindowSpec.getPartitionKeyIndices
+        val newPartitionKeysThroughCalc =
+          getSessionPartitionKeysThroughCalc(windowPartitionKeys, calc)
+        checkArgument(windowPartitionKeys.length == newPartitionKeysThroughCalc.length)
+        new SessionWindowSpec(sessionWindowSpec.getGap, newPartitionKeysThroughCalc)
+      case _ => oldWindowSpec
+    }
+  }
+
+  private def getSessionPartitionKeysThroughCalc(
+      sessionWindowPartitionKeyIndices: Array[Int],
+      calc: StreamPhysicalCalc): Array[Int] = {
+    val newPartitionKeyIndices = ArrayBuffer[Int]()
+    val program = calc.getProgram
+    program.getNamedProjects.zipWithIndex.foreach {
+      case (project, index) =>
+        val expr = program.expandLocalRef(project.left)
+        expr match {
+          case inputRef: RexInputRef =>
+            if (sessionWindowPartitionKeyIndices.indexOf(inputRef.getIndex) != -1) {
+              newPartitionKeyIndices += index
+            }
+          case _ => // ignore
+        }
+    }
+    newPartitionKeyIndices.toArray
   }
 }
 

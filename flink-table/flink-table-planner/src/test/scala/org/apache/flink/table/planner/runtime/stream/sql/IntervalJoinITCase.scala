@@ -15,30 +15,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.runtime.stream.sql
 
-import org.apache.flink.api.scala._
-import org.apache.flink.streaming.api.functions.AssignerWithPunctuatedWatermarks
 import org.apache.flink.streaming.api.watermark.Watermark
+import org.apache.flink.streaming.runtime.operators.util.WatermarkStrategyWithPunctuatedWatermarks
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
-import org.apache.flink.table.planner.runtime.utils.StreamingWithStateTestBase.StateBackendMode
 import org.apache.flink.table.planner.runtime.utils._
+import org.apache.flink.table.planner.runtime.utils.StreamingWithStateTestBase.StateBackendMode
+import org.apache.flink.testutils.junit.extensions.parameterized.ParameterizedTestExtension
 import org.apache.flink.types.Row
-import org.junit.Assert._
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
-import org.junit.Test
+
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.TestTemplate
+import org.junit.jupiter.api.extension.ExtendWith
 
 import scala.collection.mutable
 
-@RunWith(classOf[Parameterized])
+@ExtendWith(Array(classOf[ParameterizedTestExtension]))
 class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestBase(mode) {
 
   // Tests for inner join.
-  /** test proctime inner join **/
-  @Test
+  /** test proctime inner join * */
+  @TestTemplate
   def testProcessTimeInnerJoin(): Unit = {
     env.setParallelism(1)
 
@@ -63,25 +62,29 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((1, 1L, "HiHi"))
     data2.+=((2, 2L, "HeHe"))
 
-    val tmp1 = env.fromCollection(data1).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    tEnv.registerTable("TmpT1", tmp1)
+    val tmp1 = StreamingEnvUtil
+      .fromCollection(env, data1)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    tEnv.createTemporaryView("TmpT1", tmp1)
     val subquery1 = "SELECT IF(a = 1, CAST(NULL AS INT), a) as a, b, c, proctime FROM TmpT1"
     val t1 = tEnv.sqlQuery(subquery1)
-    tEnv.registerTable("T1", t1)
+    tEnv.createTemporaryView("T1", t1)
 
-    val tmp2 = env.fromCollection(data2).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    tEnv.registerTable("TmpT2", tmp2)
+    val tmp2 = StreamingEnvUtil
+      .fromCollection(env, data2)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    tEnv.createTemporaryView("TmpT2", tmp2)
     val subquery2 = "SELECT IF(a = 1, CAST(NULL AS INT), a) as a, b, c, proctime FROM TmpT2"
     val t2 = tEnv.sqlQuery(subquery2)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
   }
 
-  @Test
+  @TestTemplate
   def testProcessTimeJoinWithIsNotDistinctFrom(): Unit = {
     env.setParallelism(1)
 
@@ -106,26 +109,30 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((1, 1L, "HiHi"))
     data2.+=((2, 2L, "HeHe"))
 
-    val tmp1 = env.fromCollection(data1).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    tEnv.registerTable("TmpT1", tmp1)
+    val tmp1 = StreamingEnvUtil
+      .fromCollection(env, data1)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    tEnv.createTemporaryView("TmpT1", tmp1)
     val subquery1 = "SELECT IF(a = 1, CAST(NULL AS INT), a) as a, b, c, proctime FROM TmpT1"
     val t1 = tEnv.sqlQuery(subquery1)
-    tEnv.registerTable("T1", t1)
+    tEnv.createTemporaryView("T1", t1)
 
-    val tmp2 = env.fromCollection(data2).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    tEnv.registerTable("TmpT2", tmp2)
+    val tmp2 = StreamingEnvUtil
+      .fromCollection(env, data2)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    tEnv.createTemporaryView("TmpT2", tmp2)
     val subquery2 = "SELECT IF(a = 1, CAST(NULL AS INT), a) as a, b, c, proctime FROM TmpT2"
     val t2 = tEnv.sqlQuery(subquery2)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
   }
 
-  /** test proctime inner join with other condition **/
-  @Test
+  /** test proctime inner join with other condition * */
+  @TestTemplate
   def testProcessTimeInnerJoinWithOtherConditions(): Unit = {
     env.setParallelism(2)
 
@@ -155,23 +162,27 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data1.+=((null.asInstanceOf[String], 20L, "leftNull"))
     data2.+=((null.asInstanceOf[String], 20L, "rightNull"))
 
-    val t1 = env.fromCollection(data1).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    val t2 = env.fromCollection(data2).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
     // Assert there is no result with null keys.
-    assertFalse(sink.getAppendResults.contains("null"))
+    assertThat(sink.getAppendResults.contains("null")).isFalse
   }
 
-  /** test rowtime inner join **/
-  @Test
+  /** test rowtime inner join * */
+  @TestTemplate
   def testRowTimeInnerJoin(): Unit = {
     val sqlQuery =
       """
@@ -200,28 +211,33 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     // test null key
     data2.+=((null.asInstanceOf[String], "RIGHT10", 10000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
-    val expected = mutable.MutableList("A,RIGHT6,LEFT1", "A,RIGHT6,LEFT2", "A,RIGHT6,LEFT3",
+    val expected = mutable.MutableList(
+      "A,RIGHT6,LEFT1",
+      "A,RIGHT6,LEFT2",
+      "A,RIGHT6,LEFT3",
       "A,RIGHT6,LEFT5",
       "A,RIGHT6,LEFT6",
       "B,RIGHT7,LEFT4")
-    assertEquals(expected, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected)
   }
 
-  /** test rowtime inner join **/
-  @Test
+  /** test rowtime inner join * */
+  @TestTemplate
   def testRowTimeInnerJoinWithIsNotDistinctFrom(): Unit = {
     val sqlQuery =
       """
@@ -250,29 +266,34 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     // test null key
     data2.+=((null.asInstanceOf[String], "RIGHT10", 10000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
-    val expected = mutable.MutableList("A,RIGHT6,LEFT1", "A,RIGHT6,LEFT2", "A,RIGHT6,LEFT3",
+    val expected = mutable.MutableList(
+      "A,RIGHT6,LEFT1",
+      "A,RIGHT6,LEFT2",
+      "A,RIGHT6,LEFT3",
       "A,RIGHT6,LEFT5",
       "A,RIGHT6,LEFT6",
       "B,RIGHT7,LEFT4",
       "null,RIGHT10,LEFT8")
-    assertEquals(expected, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected)
   }
 
-  /** test rowtime inner join without equal condition **/
-  @Test
+  /** test rowtime inner join without equal condition * */
+  @TestTemplate
   def testRowTimeInnerJoinWithoutEqualCondition(): Unit = {
     val sqlQuery =
       """
@@ -300,31 +321,45 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     // test null key
     data2.+=((null.asInstanceOf[String], "RIGHT10", 10000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
     val expected = mutable.MutableList(
-      "A,RIGHT6,LEFT1", "A,RIGHT6,LEFT2", "A,RIGHT6,LEFT3", "A,RIGHT6,LEFT4",
-      "A,RIGHT6,LEFT5", "A,RIGHT6,LEFT6", "A,RIGHT6,LEFT8", "B,RIGHT7,LEFT2",
-      "B,RIGHT7,LEFT3", "B,RIGHT7,LEFT4", "B,RIGHT7,LEFT5", "B,RIGHT7,LEFT6",
-      "B,RIGHT7,LEFT8", "null,RIGHT10,LEFT5", "null,RIGHT10,LEFT6", "null,RIGHT10,LEFT8"
+      "A,RIGHT6,LEFT1",
+      "A,RIGHT6,LEFT2",
+      "A,RIGHT6,LEFT3",
+      "A,RIGHT6,LEFT4",
+      "A,RIGHT6,LEFT5",
+      "A,RIGHT6,LEFT6",
+      "A,RIGHT6,LEFT8",
+      "B,RIGHT7,LEFT2",
+      "B,RIGHT7,LEFT3",
+      "B,RIGHT7,LEFT4",
+      "B,RIGHT7,LEFT5",
+      "B,RIGHT7,LEFT6",
+      "B,RIGHT7,LEFT8",
+      "null,RIGHT10,LEFT5",
+      "null,RIGHT10,LEFT6",
+      "null,RIGHT10,LEFT8"
     )
-    assertEquals(expected, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected)
   }
 
-  @Test
+  @TestTemplate
   def testUnboundedAggAfterRowtimeInnerJoin(): Unit = {
-    val innerSql=
+    val innerSql =
       """
         |SELECT t2.key as key, t2.id as id1, t1.id as id2
         |FROM T1 as t1 join T2 as t2 ON
@@ -354,25 +389,27 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     // test null key
     data2.+=((null.asInstanceOf[String], "RIGHT10", 10000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
     val sink = new TestingRetractSink
     val result = tEnv.sqlQuery(sqlQuery).toRetractStream[Row]
     result.addSink(sink)
     env.execute()
     val expected = mutable.MutableList("A,1,5", "B,1,1")
-    assertEquals(expected, sink.getRetractResults.sorted)
+    assertThat(sink.getRetractResults.sorted).isEqualTo(expected)
   }
 
-  /** test row time inner join with equi-times **/
-  @Test
+  /** test row time inner join with equi-times * */
+  @TestTemplate
   def testRowTimeInnerJoinWithEquiTimeAttrs(): Unit = {
 
     val sqlQuery =
@@ -405,22 +442,23 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("K1", 6000L, "R6"))
     data2.+=(("K1", 5001L, "R7"))
 
-    val schema = Schema.newBuilder()
+    val schema = Schema
+      .newBuilder()
       .columnByExpression("key", "_1")
       .columnByExpression("rowtime", "TO_TIMESTAMP_LTZ(_2, 3)")
       .columnByExpression("val", "_3")
       .watermark("rowtime", "rowtime - INTERVAL '1' SECOND")
       .build()
 
-    val t1 = tEnv.fromDataStream(env.fromCollection(data1), schema)
+    val t1 = tEnv.fromDataStream(StreamingEnvUtil.fromCollection(env, data1), schema)
 
-    val t2 = tEnv.fromDataStream(env.fromCollection(data2), schema)
+    val t2 = tEnv.fromDataStream(StreamingEnvUtil.fromCollection(env, data2), schema)
 
     tEnv.createTemporaryView("T1", t1)
     tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
@@ -439,11 +477,11 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "K1,5001,L8,R7"
     )
 
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  /** test rowtime inner join with other conditions **/
-  @Test
+  /** test rowtime inner join with other conditions * */
+  @TestTemplate
   def testRowTimeInnerJoinWithOtherConditions(): Unit = {
     val sqlQuery =
       """
@@ -476,30 +514,33 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((2, 14L, "RIGHT7", 7000L))
     data2.+=((1, 4L, "RIGHT8", 8000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row4WatermarkExtractor)
       .toTable(tEnv, 'a, 'b, 'c, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row4WatermarkExtractor)
       .toTable(tEnv, 'a, 'b, 'c, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
     // There may be two expected results according to the process order.
-    val expected = mutable.MutableList[String]("1,LEFT3,RIGHT6",
+    val expected = mutable.MutableList[String](
+      "1,LEFT3,RIGHT6",
       "1,LEFT1.1,RIGHT6",
       "2,LEFT4,RIGHT7",
       "1,LEFT4.9,RIGHT6")
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  /** test rowtime inner join with another time condition **/
-  @Test
+  /** test rowtime inner join with another time condition * */
+  @TestTemplate
   def testRowTimeInnerJoinWithOtherTimeCondition(): Unit = {
     val sqlQuery =
       """
@@ -525,31 +566,30 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((2, 8, "RIGHT7", 7000L))
     data2.+=((1, 4L, "RIGHT8", 8000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row4WatermarkExtractor)
       .toTable(tEnv, 'a, 'b, 'c, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row4WatermarkExtractor)
       .toTable(tEnv, 'a, 'b, 'c, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
-    val expected = mutable.MutableList[String](
-      "1,LEFT3,RIGHT6",
-      "1,LEFT5,RIGHT6",
-      "1,LEFT5,RIGHT8",
-      "1,LEFT6,RIGHT8")
+    val expected = mutable
+      .MutableList[String]("1,LEFT3,RIGHT6", "1,LEFT5,RIGHT6", "1,LEFT5,RIGHT8", "1,LEFT6,RIGHT8")
 
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  /** test rowtime inner join with window aggregation **/
-  @Test
+  /** test rowtime inner join with window aggregation * */
+  @TestTemplate
   def testRowTimeInnerJoinWithWindowAggregateOnFirstTime(): Unit = {
     val sqlQuery =
       """
@@ -565,7 +605,7 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data1.+=(("A", "L-1", 1000L)) // no joining record
     data1.+=(("A", "L-2", 2000L)) // 1 joining record
     data1.+=(("A", "L-3", 3000L)) // 2 joining records
-    //data1.+=(("B", "L-8", 2000L))  // 1 joining records
+    // data1.+=(("B", "L-8", 2000L))  // 1 joining records
     data1.+=(("B", "L-4", 4000L)) // 1 joining record
     data1.+=(("C", "L-5", 4000L)) // no joining record
     data1.+=(("A", "L-6", 10000L)) // 2 joining records
@@ -577,32 +617,34 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("A", "R-3", 8000L)) // 3 joining records
     data2.+=(("D", "R-2", 8000L)) // no joining record
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
     val t_r = tEnv.sqlQuery(sqlQuery)
-    val result = t_r.toAppendStream[Row]
+    val result = t_r.toDataStream
     result.addSink(sink)
     env.execute()
     val expected = mutable.MutableList[String](
       "A,1970-01-01T00:00:04,3",
       "A,1970-01-01T00:00:12,2",
       "A,1970-01-01T00:00:16,1",
-      //"B,1970-01-01T00:00:04,1",
+      // "B,1970-01-01T00:00:04,1",
       "B,1970-01-01T00:00:08,1")
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  /** test row time inner join with window aggregation **/
-  @Test
+  /** test row time inner join with window aggregation * */
+  @TestTemplate
   def testRowTimeInnerJoinWithWindowAggregateOnSecondTime(): Unit = {
     val sqlQuery =
       """
@@ -629,29 +671,31 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("A", "R-3", 8000L)) // 3 joining records
     data2.+=(("D", "R-2", 8000L)) // no joining record
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
     val expected = mutable.MutableList[String](
       "A,1970-01-01T00:00:08,3",
       "A,1970-01-01T00:00:12,3",
       "B,1970-01-01T00:00:08,1")
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  /** Tests for left outer join **/
-  @Test
+  /** Tests for left outer join * */
+  @TestTemplate
   def testProcTimeLeftOuterJoin(): Unit = {
     env.setParallelism(1)
 
@@ -674,23 +718,25 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((1, 1L, "HiHi"))
     data2.+=((2, 2L, "HeHe"))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
   }
 
-  /** Tests row time left outer join **/
-  @Test
+  /** Tests row time left outer join * */
+  @TestTemplate
   def testRowTimeLeftOuterJoin(): Unit = {
     val sqlQuery =
       """
@@ -720,19 +766,21 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("D", "R-8", 8000L))
     data2.+=(("A", "R-11", 11000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
     val expected = mutable.MutableList[String](
@@ -747,12 +795,13 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "A,R-11,L-12",
       "B,null,L-5",
       "C,null,L-7",
-      "A,null,L-20")
+      "A,null,L-20"
+    )
 
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  @Test
+  @TestTemplate
   def testRowTimeLeftOuterJoinNegativeIntervalSize(): Unit = {
     val sqlQuery =
       """
@@ -774,18 +823,20 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("B", "R-7", 7000L))
     data2.+=(("D", "R-8", 8000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
@@ -794,11 +845,11 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "null,null,L-4",
       "null,null,L-7"
     )
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  //Test for right outer join
-  @Test
+  // Test for right outer join
+  @TestTemplate
   def testProcTimeRightOuterJoin(): Unit = {
     env.setParallelism(1)
 
@@ -821,20 +872,24 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((1, 1L, "HiHi"))
     data2.+=((2, 2L, "HeHe"))
 
-    val t1 = env.fromCollection(data1).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    val t2 = env.fromCollection(data2).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
   }
 
-  @Test
+  @TestTemplate
   def testRowTimeRightOuterJoin(): Unit = {
     val sqlQuery =
       """
@@ -863,18 +918,20 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("D", "R-8", 8000L))
     data2.+=(("A", "R-20", 20000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
     val expected = mutable.MutableList[String](
@@ -889,10 +946,10 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "D,R-8,null"
     )
 
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  @Test
+  @TestTemplate
   def testRowTimeRightOuterJoinNegativeIntervalSize(): Unit = {
     val sqlQuery =
       """
@@ -914,18 +971,20 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("B", "R-7", 7000L))
     data2.+=(("D", "R-8", 8000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
@@ -934,11 +993,11 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "B,R-7,null",
       "D,R-8,null"
     )
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  //Tests for full outer join
-  @Test
+  // Tests for full outer join
+  @TestTemplate
   def testProcTimeFullOuterJoin(): Unit = {
     env.setParallelism(1)
 
@@ -961,19 +1020,23 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=((1, 1L, "HiHi"))
     data2.+=((2, 2L, "HeHe"))
 
-    val t1 = env.fromCollection(data1).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
-    val t2 = env.fromCollection(data2).toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
+      .toTable(tEnv, 'a, 'b, 'c, 'proctime.proctime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
   }
 
-  @Test
+  @TestTemplate
   def testRowTimeFullOuterJoin(): Unit = {
     val sqlQuery =
       """
@@ -1003,18 +1066,20 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("B", "R-7", 7000L))
     data2.+=(("D", "R-8", 8000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
@@ -1031,10 +1096,10 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "null,null,L-7",
       "null,null,L-20"
     )
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 
-  @Test
+  @TestTemplate
   def testRowTimeFullOuterJoinNegativeIntervalSize(): Unit = {
     val sqlQuery =
       """
@@ -1056,18 +1121,20 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
     data2.+=(("B", "R-7", 7000L))
     data2.+=(("D", "R-8", 8000L))
 
-    val t1 = env.fromCollection(data1)
+    val t1 = StreamingEnvUtil
+      .fromCollection(env, data1)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
-    val t2 = env.fromCollection(data2)
+    val t2 = StreamingEnvUtil
+      .fromCollection(env, data2)
       .assignTimestampsAndWatermarks(new Row3WatermarkExtractor2)
       .toTable(tEnv, 'key, 'id, 'rowtime.rowtime)
 
-    tEnv.registerTable("T1", t1)
-    tEnv.registerTable("T2", t2)
+    tEnv.createTemporaryView("T1", t1)
+    tEnv.createTemporaryView("T2", t2)
 
     val sink = new TestingAppendSink
-    val result = tEnv.sqlQuery(sqlQuery).toAppendStream[Row]
+    val result = tEnv.sqlQuery(sqlQuery).toDataStream
     result.addSink(sink)
     env.execute()
 
@@ -1079,12 +1146,12 @@ class IntervalJoinITCase(mode: StateBackendMode) extends StreamingWithStateTestB
       "B,R-7,null",
       "D,R-8,null"
     )
-    assertEquals(expected.toList.sorted, sink.getAppendResults.sorted)
+    assertThat(sink.getAppendResults.sorted).isEqualTo(expected.toList.sorted)
   }
 }
 
 private class Row4WatermarkExtractor
-  extends AssignerWithPunctuatedWatermarks[(Int, Long, String, Long)] {
+  extends WatermarkStrategyWithPunctuatedWatermarks[(Int, Long, String, Long)] {
 
   override def checkAndGetNextWatermark(
       lastElement: (Int, Long, String, Long),
@@ -1100,7 +1167,7 @@ private class Row4WatermarkExtractor
 }
 
 private class Row3WatermarkExtractor2
-  extends AssignerWithPunctuatedWatermarks[(String, String, Long)] {
+  extends WatermarkStrategyWithPunctuatedWatermarks[(String, String, Long)] {
 
   override def checkAndGetNextWatermark(
       lastElement: (String, String, Long),

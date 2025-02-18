@@ -62,7 +62,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 ## IntelliJ IDEA
 
 The following guide has been written for [IntelliJ IDEA](https://www.jetbrains.com/idea/download/)
-2020.3. Some details might differ in other versions. Please make sure to follow all steps
+2021.2. Some details might differ in other versions. Please make sure to follow all steps
 accurately.
 
 ### Importing Flink
@@ -124,7 +124,7 @@ install them, and restart the IDE if prompted:
 
 You will also need to install the [google-java-format](https://github.com/google/google-java-format)
 plugin. However, a specific version of this plugin is required. Download
-[google-java-format v1.7.0.6](https://plugins.jetbrains.com/plugin/8527-google-java-format/versions/stable/115957)
+[google-java-format v1.24.0.0](https://plugins.jetbrains.com/plugin/8527-google-java-format/versions/stable/614263)
 and install it as follows. Make sure to never update this plugin.
 
 1. Go to "Settings" → "Plugins".
@@ -135,17 +135,27 @@ and install it as follows. Make sure to never update this plugin.
 
 Flink uses [Spotless](https://github.com/diffplug/spotless/tree/main/plugin-maven) together with
 [google-java-format](https://github.com/google/google-java-format) to format the Java code.
+For Scala, it uses Spotless with [scalafmt](https://scalameta.org/scalafmt/).
 
 It is recommended to automatically format your code by applying the following settings:
 
 1. Go to "Settings" → "Other Settings" → "google-java-format Settings".
 2. Tick the checkbox to enable the plugin.
 3. Change the code style to "Android Open Source Project (AOSP) style".
-4. Go to "Settings" → "Other Settings" → "Save Actions".
-5. Under "General", enable your preferred settings for when to format the code, e.g.
-   "Activate save actions on save".
-6. Under "Formatting Actions", select "Optimize imports" and "Reformat file".
-7. Under "File Path Inclusions", add an entry for `.*\.java` to avoid formatting other file types.
+4. Go to "Settings" → Editor → Code Style → Scala.
+5. Change the "Formatter" to "scalafmt".
+6. Go to "Settings" → "Tools" → "Actions on Save".
+7. Under "Formatting Actions", select "Optimize imports" and "Reformat code".
+8. From the "All file types list" next to "Reformat code", select Java and Scala.
+
+For earlier IntelliJ IDEA versions:
+
+6. Go to "Settings" → "Other Settings" → "Save Actions".
+7. Under "General", enable your preferred settings for when to format the code, e.g. "Activate save actions on save".
+8. Under "Formatting Actions", select "Optimize imports" and "Reformat file".
+9. Under "File Path Inclusions", add an entry for `.*\.java` and `.*\.scala` to avoid formatting other file types.
+
+You can also format the whole project (both Java and Scala) via Maven by using `mvn spotless:apply`.
 
 #### Checkstyle For Java
 
@@ -159,7 +169,7 @@ any of these modules.
 
 1. Go to "Settings" → "Tools" → "Checkstyle".
 2. Set "Scan Scope" to "Only Java sources (including tests)".
-3. For "Checkstyle Version" select "8.14".
+3. For "Checkstyle Version" select "10.18.2".
 4. Under "Configuration File" click the "+" icon to add a new configuration.
 5. Set "Description" to "Flink".
 6. Select "Use a local Checkstyle file" and point it to `tools/maven/checkstyle.xml` located within
@@ -178,16 +188,6 @@ You can now import the Checkstyle configuration for the Java code formatter.
 
 To verify the setup, click "View" → "Tool Windows" → "Checkstyle" and find the "Check Module"
 button in the opened tool window. It should report no violations.
-
-#### Checkstyle For Scala
-
-Enable [Scalastyle](http://www.scalastyle.org/) as follows:
-
-1. Go to "Settings" → "Editor" → "Inspections".
-2. Search for "Scala style inspection" and enable it.
-
-Now copy the file `tools/maven/scalastyle-config.xml` into the `.idea/` or `project/` folder of your
-cloned repository.
 
 #### Python for PyFlink
 
@@ -261,7 +261,7 @@ versions.
 [Flake8](https://pypi.org/project/flake8/) is used to enforce some coding guidelines.
 
 1. Install flake8 for your Python interpreter using `pip install flake8`.
-2. In PyCharm go to "Preferences" → "Tools" → "External Tools".
+2. In PyCharm go to "Settings" → "Tools" → "External Tools".
 3. Select the "+" button to add a new external tool.
 4. Set "Name" to "flake8".
 5. Set "Description" to "Code Style Check".

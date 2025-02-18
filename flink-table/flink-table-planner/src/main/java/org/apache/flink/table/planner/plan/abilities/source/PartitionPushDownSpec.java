@@ -63,6 +63,15 @@ public final class PartitionPushDownSpec extends SourceAbilitySpecBase {
         }
     }
 
+    public List<Map<String, String>> getPartitions() {
+        return partitions;
+    }
+
+    @Override
+    public boolean needAdjustFieldReferenceAfterProjection() {
+        return false;
+    }
+
     @Override
     public String getDigests(SourceAbilityContext context) {
         return "partitions=["

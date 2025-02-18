@@ -53,7 +53,7 @@ to apply the `ProcessFunction` on a keyed stream:
 {{< /hint >}}
 
 ```java
-stream.keyBy(...).process(new MyProcessFunction())
+stream.keyBy(...).process(new MyProcessFunction());
 ```
 
 ## Low-level Joins
@@ -94,11 +94,11 @@ session windows. We use `KeyedProcessFunction` here to illustrate the basic patt
 {{< tab "Java" >}}
 
 ```java
+import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction.Context;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction.OnTimerContext;
@@ -133,7 +133,7 @@ public class CountWithTimeoutFunction
     private ValueState<CountWithTimestamp> state;
 
     @Override
-    public void open(Configuration parameters) throws Exception {
+    public void open(OpenContext openContext) throws Exception {
         state = getRuntimeContext().getState(new ValueStateDescriptor<>("myState", CountWithTimestamp.class));
     }
 
@@ -461,7 +461,7 @@ Stopping a processing-time timer:
 {{< tabs "5d0d1344-6f51-44f8-b500-ebe863cedba4" >}}
 {{< tab "Java" >}}
 ```java
-long timestampOfTimerToStop = ...
+long timestampOfTimerToStop = ...;
 ctx.timerService().deleteProcessingTimeTimer(timestampOfTimerToStop);
 ```
 {{< /tab >}}
@@ -484,7 +484,7 @@ Stopping an event-time timer:
 {{< tabs "581e5996-503c-452e-8b2a-a4daeaf4ac88" >}}
 {{< tab "Java" >}}
 ```java
-long timestampOfTimerToStop = ...
+long timestampOfTimerToStop = ...;
 ctx.timerService().deleteEventTimeTimer(timestampOfTimerToStop);
 ```
 {{< /tab >}}

@@ -25,16 +25,16 @@ import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.util.OneInputStreamOperatorTestHarness;
 import org.apache.flink.table.data.RowData;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import static org.apache.flink.table.runtime.util.StreamRecordUtils.insertRecord;
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for {@link RowTimeRangeBoundedPrecedingFunction}. */
-public class RowTimeRangeBoundedPrecedingFunctionTest extends RowTimeOverWindowTestBase {
+class RowTimeRangeBoundedPrecedingFunctionTest extends RowTimeOverWindowTestBase {
 
     @Test
-    public void testStateCleanup() throws Exception {
+    void testStateCleanup() throws Exception {
         RowTimeRangeBoundedPrecedingFunction<RowData> function =
                 new RowTimeRangeBoundedPrecedingFunction<>(
                         aggsHandleFunction, accTypes, inputFieldTypes, 2000, 2);
@@ -49,7 +49,9 @@ public class RowTimeRangeBoundedPrecedingFunctionTest extends RowTimeOverWindowT
         AbstractKeyedStateBackend stateBackend =
                 (AbstractKeyedStateBackend) operator.getKeyedStateBackend();
 
-        assertEquals("Initial state is not empty", 0, stateBackend.numKeyValueStateEntries());
+        assertThat(stateBackend.numKeyValueStateEntries())
+                .as("Initial state is not empty")
+                .isEqualTo(0);
 
         // put some records
         testHarness.processElement(insertRecord("key", 1L, 100L));
@@ -62,11 +64,13 @@ public class RowTimeRangeBoundedPrecedingFunctionTest extends RowTimeOverWindowT
         testHarness.processWatermark(new Watermark(4000L));
         // at this moment the function should have cleaned up states
 
-        assertEquals("State has not been cleaned up", 0, stateBackend.numKeyValueStateEntries());
+        assertThat(stateBackend.numKeyValueStateEntries())
+                .as("State has not been cleaned up")
+                .isEqualTo(0);
     }
 
     @Test
-    public void testLateRecordMetrics() throws Exception {
+    void testLateRecordMetrics() throws Exception {
         RowTimeRangeBoundedPrecedingFunction<RowData> function =
                 new RowTimeRangeBoundedPrecedingFunction<>(
                         aggsHandleFunction, accTypes, inputFieldTypes, 2000, 2);
@@ -90,6 +94,6 @@ public class RowTimeRangeBoundedPrecedingFunctionTest extends RowTimeOverWindowT
         // late record
         testHarness.processElement(insertRecord("key", 1L, 400L));
 
-        assertEquals(1L, counter.getCount());
+        assertThat(counter.getCount()).isEqualTo(1L);
     }
 }

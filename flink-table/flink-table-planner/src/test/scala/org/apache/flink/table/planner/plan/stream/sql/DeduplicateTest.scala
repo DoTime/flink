@@ -15,27 +15,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.plan.stream.sql
 
-import org.apache.flink.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.config.ExecutionConfigOptions.{TABLE_EXEC_MINIBATCH_ALLOW_LATENCY, TABLE_EXEC_MINIBATCH_ENABLED, TABLE_EXEC_MINIBATCH_SIZE}
 import org.apache.flink.table.planner.utils.{StreamTableTestUtil, TableTestBase}
 
-import java.time.Duration
+import org.junit.jupiter.api.{BeforeEach, Test}
 
-import org.junit.{Before, Test}
+import java.time.Duration
 
 class DeduplicateTest extends TableTestBase {
 
   var util: StreamTableTestUtil = _
 
-  @Before
+  @BeforeEach
   def setUp(): Unit = {
     util = streamTestUtil()
     util.addDataStream[(Int, String, Long)](
-      "MyTable", 'a, 'b, 'c, 'proctime.proctime, 'rowtime.rowtime)
+      "MyTable",
+      'a,
+      'b,
+      'c,
+      'proctime.proctime,
+      'rowtime.rowtime)
   }
 
   @Test
@@ -69,8 +72,34 @@ class DeduplicateTest extends TableTestBase {
   }
 
   @Test
+  def testInvalidChangelogInput(): Unit = {
+    util.tableEnv.executeSql("""
+                               |create temporary table cdc (
+                               | a int,
+                               | b bigint,
+                               | ts timestamp_ltz(3),
+                               | primary key (a) not enforced,
+                               | watermark for ts as ts - interval '5' second
+                               |) with (
+                               | 'connector' = 'values',
+                               | 'changelog-mode' = 'I,UA,UB,D'
+                               |)""".stripMargin)
+    val sql =
+      """
+        |SELECT *
+        |FROM (
+        |  SELECT a, ROW_NUMBER() OVER (PARTITION BY b ORDER BY ts DESC) as rank_num
+        |  FROM cdc)
+        |WHERE rank_num = 1
+      """.stripMargin
+
+    // the input is not append-only, it will not be translate to LastRow, but Rank
+    util.verifyExecPlan(sql)
+  }
+
+  @Test
   def testLastRowWithWindowOnRowtime(): Unit = {
-    util.tableEnv.getConfig.getConfiguration
+    util.tableEnv.getConfig
       .set(TABLE_EXEC_MINIBATCH_ALLOW_LATENCY, Duration.ofMillis(500))
     util.addTable(
       """
@@ -125,10 +154,9 @@ class DeduplicateTest extends TableTestBase {
 
   @Test
   def testMiniBatchInferFirstRowOnRowtime(): Unit = {
-    util.tableEnv.getConfig.getConfiguration.setBoolean(TABLE_EXEC_MINIBATCH_ENABLED, true)
-    util.tableEnv.getConfig.getConfiguration.setLong(TABLE_EXEC_MINIBATCH_SIZE, 3L)
-    util.tableEnv.getConfig.getConfiguration.set(
-      TABLE_EXEC_MINIBATCH_ALLOW_LATENCY, Duration.ofSeconds(1))
+    util.tableEnv.getConfig.set(TABLE_EXEC_MINIBATCH_ENABLED, Boolean.box(true))
+    util.tableEnv.getConfig.set(TABLE_EXEC_MINIBATCH_SIZE, Long.box(3L))
+    util.tableEnv.getConfig.set(TABLE_EXEC_MINIBATCH_ALLOW_LATENCY, Duration.ofSeconds(1))
     val ddl =
       s"""
          |CREATE TABLE T (
@@ -175,10 +203,9 @@ class DeduplicateTest extends TableTestBase {
 
   @Test
   def testMiniBatchInferLastRowOnRowtime(): Unit = {
-    util.tableEnv.getConfig.getConfiguration.setBoolean(TABLE_EXEC_MINIBATCH_ENABLED, true)
-    util.tableEnv.getConfig.getConfiguration.setLong(TABLE_EXEC_MINIBATCH_SIZE, 3L)
-    util.tableEnv.getConfig.getConfiguration.set(
-      TABLE_EXEC_MINIBATCH_ALLOW_LATENCY, Duration.ofSeconds(1))
+    util.tableEnv.getConfig.set(TABLE_EXEC_MINIBATCH_ENABLED, Boolean.box(true))
+    util.tableEnv.getConfig.set(TABLE_EXEC_MINIBATCH_SIZE, Long.box(3L))
+    util.tableEnv.getConfig.set(TABLE_EXEC_MINIBATCH_ALLOW_LATENCY, Duration.ofSeconds(1))
     val ddl =
       s"""
          |CREATE TABLE T (

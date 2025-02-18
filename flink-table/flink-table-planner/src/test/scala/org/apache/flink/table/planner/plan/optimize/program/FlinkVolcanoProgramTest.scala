@@ -15,37 +15,37 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.plan.optimize.program
 
 import org.apache.calcite.plan.Convention
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.rules._
 import org.apache.calcite.tools.RuleSets
-import org.junit.Test
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.Test
 
-/**
-  * Tests for [[FlinkVolcanoProgramTest]].
-  */
+/** Tests for [[FlinkVolcanoProgramTest]]. */
 class FlinkVolcanoProgramTest {
 
   @Test
   def testBuildFlinkVolcanoProgram(): Unit = {
     val TEST = new Convention.Impl("TEST", classOf[RelNode])
     FlinkVolcanoProgramBuilder.newBuilder
-      .add(RuleSets.ofList(
-        CoreRules.FILTER_REDUCE_EXPRESSIONS,
-        CoreRules.PROJECT_REDUCE_EXPRESSIONS,
-        CoreRules.CALC_REDUCE_EXPRESSIONS,
-        CoreRules.JOIN_REDUCE_EXPRESSIONS
-      ))
+      .add(
+        RuleSets.ofList(
+          CoreRules.FILTER_REDUCE_EXPRESSIONS,
+          CoreRules.PROJECT_REDUCE_EXPRESSIONS,
+          CoreRules.CALC_REDUCE_EXPRESSIONS,
+          CoreRules.JOIN_REDUCE_EXPRESSIONS
+        ))
       .setRequiredOutputTraits(Array(TEST))
       .build()
   }
 
-  @Test(expected = classOf[NullPointerException])
+  @Test
   def testNullRequiredOutputTraits(): Unit = {
-    FlinkVolcanoProgramBuilder.newBuilder.setRequiredOutputTraits(null)
+    assertThatThrownBy(() => FlinkVolcanoProgramBuilder.newBuilder.setRequiredOutputTraits(null))
+      .isInstanceOf(classOf[NullPointerException])
   }
 
 }

@@ -2,8 +2,11 @@
 .cache
 scalastyle-output.xml
 .classpath
+.java-version
 .idea/*
 !.idea/vcs.xml
+!.idea/icon.png
+.vscode
 .metadata
 .settings
 .project
@@ -11,6 +14,7 @@ scalastyle-output.xml
 filter.properties
 logs.zip
 .mvn/wrapper/*.jar
+.mvn/maven.config
 target
 tmp
 *.class
@@ -22,6 +26,7 @@ tmp
 *.pyc
 .DS_Store
 build-target
+**/dependency-reduced-pom.xml
 flink-runtime-web/web-dashboard/node/
 flink-runtime-web/web-dashboard/node_modules/
 flink-runtime-web/web-dashboard/web/
@@ -40,8 +45,8 @@ flink-python/dev/.conda/
 flink-python/dev/log/
 flink-python/dev/.stage.txt
 flink-python/.eggs/
-flink-python/apache-flink-*.dev0/
-flink-python/apache-flink-libraries/apache_flink_libraries-*.dev0/
+flink-python/apache-flink-*.dev*/
+flink-python/apache-flink-libraries/apache_flink_libraries-*.dev*/
 flink-python/**/*.c
 flink-python/.idea/
 flink-python/**/*.so
@@ -59,3 +64,6 @@ tools/flink
 tools/flink-*
 tools/releasing/release
 tools/japicmp-output
+/docs/go.mod
+/docs/go.sum
+/docs/.hugo_build.lock

@@ -24,9 +24,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
-import static org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporterOptions.HOST;
 import static org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporterOptions.HOST_URL;
-import static org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporterOptions.PORT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -55,33 +53,10 @@ class PrometheusPushGatewayReporterTest {
     }
 
     @Test
-    void testConnectToPushGatewayUsingHostAndPort() {
-        PrometheusPushGatewayReporterFactory factory = new PrometheusPushGatewayReporterFactory();
-        MetricConfig metricConfig = new MetricConfig();
-        metricConfig.setProperty(HOST.key(), "localhost");
-        metricConfig.setProperty(PORT.key(), "18080");
-        PrometheusPushGatewayReporter reporter = factory.createMetricReporter(metricConfig);
-        String gatewayBaseURL = factory.createMetricReporter(metricConfig).hostUrl.toString();
-        assertThat(gatewayBaseURL).isEqualTo("http://localhost:18080");
-    }
-
-    @Test
     void testConnectToPushGatewayUsingHostUrl() {
         PrometheusPushGatewayReporterFactory factory = new PrometheusPushGatewayReporterFactory();
         MetricConfig metricConfig = new MetricConfig();
         metricConfig.setProperty(HOST_URL.key(), "https://localhost:18080");
-        PrometheusPushGatewayReporter reporter = factory.createMetricReporter(metricConfig);
-        String gatewayBaseURL = factory.createMetricReporter(metricConfig).hostUrl.toString();
-        assertThat(gatewayBaseURL).isEqualTo("https://localhost:18080");
-    }
-
-    @Test
-    void testConnectToPushGatewayPreferHostUrl() {
-        PrometheusPushGatewayReporterFactory factory = new PrometheusPushGatewayReporterFactory();
-        MetricConfig metricConfig = new MetricConfig();
-        metricConfig.setProperty(HOST_URL.key(), "https://localhost:18080");
-        metricConfig.setProperty(HOST.key(), "localhost1");
-        metricConfig.setProperty(PORT.key(), "18081");
         String gatewayBaseURL = factory.createMetricReporter(metricConfig).hostUrl.toString();
         assertThat(gatewayBaseURL).isEqualTo("https://localhost:18080");
     }
@@ -90,15 +65,6 @@ class PrometheusPushGatewayReporterTest {
     void testConnectToPushGatewayThrowsExceptionWithoutHostInformation() {
         PrometheusPushGatewayReporterFactory factory = new PrometheusPushGatewayReporterFactory();
         MetricConfig metricConfig = new MetricConfig();
-        assertThatThrownBy(() -> factory.createMetricReporter(metricConfig))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        metricConfig.setProperty(HOST.key(), "localhost");
-        assertThatThrownBy(() -> factory.createMetricReporter(metricConfig))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        metricConfig.clear();
-        metricConfig.setProperty(PORT.key(), "18080");
         assertThatThrownBy(() -> factory.createMetricReporter(metricConfig))
                 .isInstanceOf(IllegalArgumentException.class);
     }

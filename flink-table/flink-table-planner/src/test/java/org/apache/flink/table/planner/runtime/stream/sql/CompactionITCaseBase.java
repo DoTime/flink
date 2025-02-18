@@ -18,22 +18,25 @@
 
 package org.apache.flink.table.planner.runtime.stream.sql;
 
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.typeutils.RowTypeInfo;
-import org.apache.flink.streaming.api.scala.DataStream;
-import org.apache.flink.streaming.util.FiniteTestSource;
+import org.apache.flink.connector.datagen.source.TestDataGenerators;
+import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.planner.runtime.utils.StreamingTestBase;
+import org.apache.flink.test.junit5.MiniClusterExtension;
+import org.apache.flink.testutils.junit.utils.TempDirUtils;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.CloseableIterator;
 import org.apache.flink.util.CollectionUtil;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.Timeout;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestTemplate;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,23 +44,30 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.flink.connector.file.table.stream.compact.CompactOperator.COMPACTED_PREFIX;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Streaming sink File Compaction ITCase base, test checkpoint. */
+@Timeout(value = 90, unit = TimeUnit.SECONDS)
 public abstract class CompactionITCaseBase extends StreamingTestBase {
 
-    @Rule public Timeout timeoutPerTest = Timeout.seconds(90);
+    @RegisterExtension
+    private static final MiniClusterExtension MINI_CLUSTER_RESOURCE =
+            new MiniClusterExtension(
+                    new MiniClusterResourceConfiguration.Builder()
+                            .setNumberTaskManagers(1)
+                            .setNumberSlotsPerTaskManager(4)
+                            .build());
 
     private String resultPath;
 
     private List<Row> expectedRows;
 
-    @Before
-    public void init() throws IOException {
-        resultPath = tempFolder().newFolder().toURI().toString();
+    @BeforeEach
+    protected void init() throws IOException {
+        resultPath = TempDirUtils.newFolder(tempFolder()).toURI().toString();
 
         env().setParallelism(3);
         env().enableCheckpointing(100);
@@ -72,16 +82,16 @@ public abstract class CompactionITCaseBase extends StreamingTestBase {
         this.expectedRows.addAll(rows);
         this.expectedRows.sort(Comparator.comparingInt(o -> (Integer) o.getField(0)));
 
+        RowTypeInfo rowTypeInfo =
+                new RowTypeInfo(
+                        new TypeInformation[] {Types.INT, Types.STRING, Types.STRING},
+                        new String[] {"a", "b", "c"});
+
         DataStream<Row> stream =
-                new DataStream<>(
-                                env().getJavaEnv()
-                                        .addSource(
-                                                new FiniteTestSource<>(rows),
-                                                new RowTypeInfo(
-                                                        new TypeInformation[] {
-                                                            Types.INT, Types.STRING, Types.STRING
-                                                        },
-                                                        new String[] {"a", "b", "c"})))
+                env().fromSource(
+                                TestDataGenerators.fromDataWithSnapshotsLatch(rows, rowTypeInfo),
+                                WatermarkStrategy.noWatermarks(),
+                                "Test Source")
                         .filter((FilterFunction<Row>) value -> true)
                         .setParallelism(3); // to parallel tasks
 
@@ -94,17 +104,17 @@ public abstract class CompactionITCaseBase extends StreamingTestBase {
 
     protected abstract void createPartitionTable(String path);
 
-    @Test
-    public void testSingleParallelism() throws Exception {
+    @TestTemplate
+    void testSingleParallelism() throws Exception {
         innerTestNonPartition(1);
     }
 
-    @Test
-    public void testNonPartition() throws Exception {
+    @TestTemplate
+    void testNonPartition() throws Exception {
         innerTestNonPartition(3);
     }
 
-    public void innerTestNonPartition(int parallelism) throws Exception {
+    void innerTestNonPartition(int parallelism) throws Exception {
         createTable(resultPath);
         String sql =
                 String.format(
@@ -118,15 +128,15 @@ public abstract class CompactionITCaseBase extends StreamingTestBase {
         assertFiles(new File(URI.create(resultPath)).listFiles(), false);
     }
 
-    @Test
-    public void testPartition() throws Exception {
+    @TestTemplate
+    void testPartition() throws Exception {
         createPartitionTable(resultPath);
         tEnv().executeSql("insert into sink_table select * from my_table").await();
 
         assertIterator(tEnv().executeSql("select * from sink_table").collect());
 
         File path = new File(URI.create(resultPath));
-        assertEquals(10, path.listFiles().length);
+        assertThat(path.listFiles()).hasSize(10);
 
         for (int i = 0; i < 10; i++) {
             File partition = new File(path, partitionField() + "=" + i);
@@ -138,7 +148,7 @@ public abstract class CompactionITCaseBase extends StreamingTestBase {
         List<Row> result = CollectionUtil.iteratorToList(iterator);
         iterator.close();
         result.sort(Comparator.comparingInt(o -> (Integer) o.getField(0)));
-        assertEquals(expectedRows, result);
+        assertThat(result).isEqualTo(expectedRows);
     }
 
     private void assertFiles(File[] files, boolean containSuccess) {
@@ -151,11 +161,11 @@ public abstract class CompactionITCaseBase extends StreamingTestBase {
             if (containSuccess && file.getName().equals("_SUCCESS")) {
                 successFile = file;
             } else {
-                assertTrue(file.getName(), file.getName().startsWith(COMPACTED_PREFIX));
+                assertThat(file.getName()).as(file.getName()).startsWith(COMPACTED_PREFIX);
             }
         }
         if (containSuccess) {
-            Assert.assertNotNull("Should contains success file", successFile);
+            assertThat(successFile).as("Should contains success file").isNotNull();
         }
     }
 }

@@ -66,7 +66,7 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
             new ChannelStateHandleSerializer();
 
     /** Singleton, not meant to be instantiated. */
-    private MetadataV3Serializer() {}
+    protected MetadataV3Serializer() {}
 
     @Override
     public int getVersion() {
@@ -77,9 +77,10 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
     //  (De)serialization entry points
     // ------------------------------------------------------------------------
 
-    public static void serialize(CheckpointMetadata checkpointMetadata, DataOutputStream dos)
+    @Override
+    public void serialize(CheckpointMetadata checkpointMetadata, DataOutputStream dos)
             throws IOException {
-        INSTANCE.serializeMetadata(checkpointMetadata, dos);
+        serializeMetadata(checkpointMetadata, dos);
     }
 
     @Override
@@ -162,11 +163,12 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
             checkState(
                     coordinateState == null,
                     "Coordinator State should be null for fully finished operator state");
-            return new FullyFinishedOperatorState(jobVertexId, parallelism, maxParallelism);
+            return new FullyFinishedOperatorState(
+                    null, null, jobVertexId, parallelism, maxParallelism);
         }
 
         final OperatorState operatorState =
-                new OperatorState(jobVertexId, parallelism, maxParallelism);
+                new OperatorState(null, null, jobVertexId, parallelism, maxParallelism);
 
         // Coordinator state
         operatorState.setCoordinatorState(coordinateState);
@@ -188,7 +190,7 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
         return operatorState;
     }
 
-    private SubtaskAndFinishedState deserializeSubtaskIndexAndFinishedState(DataInputStream dis)
+    protected SubtaskAndFinishedState deserializeSubtaskIndexAndFinishedState(DataInputStream dis)
             throws IOException {
         int storedSubtaskIndex = dis.readInt();
         if (storedSubtaskIndex < 0) {
@@ -305,7 +307,7 @@ public class MetadataV3Serializer extends MetadataV2V3SerializerBase implements 
         return INSTANCE.deserializeResultSubpartitionStateHandle(dis, null);
     }
 
-    private static class SubtaskAndFinishedState {
+    static class SubtaskAndFinishedState {
 
         final int subtaskIndex;
 

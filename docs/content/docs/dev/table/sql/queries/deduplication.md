@@ -33,12 +33,8 @@ The following shows the syntax of the Deduplication statement:
 
 ```sql
 SELECT [column_list]
-FROM (
-   SELECT [column_list],
-     ROW_NUMBER() OVER ([PARTITION BY col1[, col2...]]
-       ORDER BY time_attr [asc|desc]) AS rownum
-   FROM table_name)
-WHERE rownum = 1
+FROM table_name
+QUALIFY ROW_NUMBER() OVER ([PARTITION BY col1[, col2...]] ORDER BY time_attr [asc|desc]) = 1
 ```
 
 **Parameter Specification:**
@@ -56,7 +52,7 @@ The following examples show how to specify SQL queries with Deduplication on str
 
 ```sql
 CREATE TABLE Orders (
-  order_time  STRING,
+  order_id  STRING,
   user        STRING,
   product     STRING,
   num         BIGINT,

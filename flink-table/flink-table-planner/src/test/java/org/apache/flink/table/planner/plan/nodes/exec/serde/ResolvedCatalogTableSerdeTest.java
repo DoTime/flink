@@ -27,9 +27,11 @@ import org.apache.flink.table.catalog.Column;
 import org.apache.flink.table.catalog.ExternalCatalogTable;
 import org.apache.flink.table.catalog.ResolvedCatalogTable;
 import org.apache.flink.table.catalog.ResolvedSchema;
+import org.apache.flink.table.catalog.TableDistribution;
 import org.apache.flink.table.catalog.UniqueConstraint;
 import org.apache.flink.table.catalog.WatermarkSpec;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
+import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
 import org.apache.flink.table.planner.expressions.RexNodeExpression;
 
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
@@ -72,7 +74,9 @@ class ResolvedCatalogTableSerdeTest {
         OPTIONS.put("c", "3");
     }
 
-    private static final FlinkTypeFactory FACTORY = FlinkTypeFactory.INSTANCE();
+    private static final FlinkTypeFactory FACTORY =
+            new FlinkTypeFactory(
+                    ResolvedCatalogTableSerdeTest.class.getClassLoader(), FlinkTypeSystem.INSTANCE);
     private static final RexBuilder REX_BUILDER = new RexBuilder(FACTORY);
 
     private static final RexNode REX_NODE =
@@ -93,11 +97,17 @@ class ResolvedCatalogTableSerdeTest {
 
     private static final ResolvedCatalogTable FULL_RESOLVED_CATALOG_TABLE =
             new ResolvedCatalogTable(
-                    CatalogTable.of(
-                            Schema.newBuilder().fromResolvedSchema(FULL_RESOLVED_SCHEMA).build(),
-                            "my table",
-                            Collections.singletonList("c"),
-                            OPTIONS),
+                    CatalogTable.newBuilder()
+                            .schema(
+                                    Schema.newBuilder()
+                                            .fromResolvedSchema(FULL_RESOLVED_SCHEMA)
+                                            .build())
+                            .comment("my table")
+                            .distribution(
+                                    TableDistribution.ofHash(Collections.singletonList("a"), 1))
+                            .partitionKeys(Collections.singletonList("c"))
+                            .options(OPTIONS)
+                            .build(),
                     FULL_RESOLVED_SCHEMA);
 
     static Stream<ResolvedCatalogTable> testResolvedCatalogTableSerde() {
@@ -116,11 +126,17 @@ class ResolvedCatalogTableSerdeTest {
         return Stream.of(
                 FULL_RESOLVED_CATALOG_TABLE,
                 new ResolvedCatalogTable(
-                        CatalogTable.of(
-                                Schema.newBuilder().fromResolvedSchema(withoutPartitionKey).build(),
-                                null,
-                                Collections.singletonList("c"),
-                                OPTIONS),
+                        CatalogTable.newBuilder()
+                                .schema(
+                                        Schema.newBuilder()
+                                                .fromResolvedSchema(withoutPartitionKey)
+                                                .build())
+                                .comment(null)
+                                .distribution(
+                                        TableDistribution.ofHash(Collections.singletonList("a"), 1))
+                                .partitionKeys(Collections.singletonList("c"))
+                                .options(OPTIONS)
+                                .build(),
                         withoutPartitionKey));
     }
 
@@ -143,23 +159,29 @@ class ResolvedCatalogTableSerdeTest {
         JsonNode actualJson = objectReader.readTree(actualSerialized);
         assertThatJsonContains(actualJson, ResolvedCatalogTableJsonSerializer.RESOLVED_SCHEMA);
         assertThatJsonContains(actualJson, ResolvedCatalogTableJsonSerializer.PARTITION_KEYS);
+        assertThatJsonContains(actualJson, ResolvedCatalogTableJsonSerializer.DISTRIBUTION);
         assertThatJsonDoesNotContain(actualJson, ResolvedCatalogTableJsonSerializer.OPTIONS);
         assertThatJsonDoesNotContain(actualJson, ResolvedCatalogTableJsonSerializer.COMMENT);
 
         ResolvedCatalogTable actual =
                 objectReader.readValue(actualSerialized, ResolvedCatalogTable.class);
 
-        assertThat(actual)
-                .isEqualTo(
-                        new ResolvedCatalogTable(
-                                CatalogTable.of(
+        ResolvedCatalogTable expected =
+                new ResolvedCatalogTable(
+                        CatalogTable.newBuilder()
+                                .schema(
                                         Schema.newBuilder()
                                                 .fromResolvedSchema(FULL_RESOLVED_SCHEMA)
-                                                .build(),
-                                        null,
-                                        Collections.singletonList("c"),
-                                        Collections.emptyMap()),
-                                FULL_RESOLVED_SCHEMA));
+                                                .build())
+                                .comment(null)
+                                .distribution(
+                                        TableDistribution.ofHash(Collections.singletonList("a"), 1))
+                                .partitionKeys(Collections.singletonList("c"))
+                                .options(Collections.emptyMap())
+                                .build(),
+                        FULL_RESOLVED_SCHEMA);
+
+        assertThat(actual).isEqualTo(expected);
     }
 
     @Test

@@ -30,74 +30,73 @@ import org.apache.flink.table.runtime.operators.multipleinput.MultipleInputTestB
 import org.apache.flink.table.runtime.operators.multipleinput.TestingOneInputStreamOperator;
 import org.apache.flink.table.runtime.operators.multipleinput.TestingTwoInputStreamOperator;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for the sub-classes of {@link Input}. */
-public class InputTest extends MultipleInputTestBase {
+class InputTest extends MultipleInputTestBase {
 
     private StreamRecord<RowData> element;
     private Watermark watermark;
     private LatencyMarker latencyMarker;
 
-    @Before
-    public void setup() {
+    @BeforeEach
+    void setup() {
         element = new StreamRecord<>(GenericRowData.of(StringData.fromString("123")), 456);
         watermark = new Watermark(1223456789);
         latencyMarker = new LatencyMarker(122345678, new OperatorID(123, 456), 1);
     }
 
     @Test
-    public void testOneInput() throws Exception {
+    void testOneInput() throws Exception {
         TestingOneInputStreamOperator op = createOneInputStreamOperator();
         OneInput input = new OneInput(op);
 
         input.processElement(element);
-        assertEquals(element, op.getCurrentElement());
+        assertThat(op.getCurrentElement()).isEqualTo(element);
 
         input.processWatermark(watermark);
-        assertEquals(watermark, op.getCurrentWatermark());
+        assertThat(op.getCurrentWatermark()).isEqualTo(watermark);
 
         input.processLatencyMarker(latencyMarker);
-        assertEquals(latencyMarker, op.getCurrentLatencyMarker());
+        assertThat(op.getCurrentLatencyMarker()).isEqualTo(latencyMarker);
     }
 
     @Test
-    public void testFirstInputOfTwoInput() throws Exception {
+    void testFirstInputOfTwoInput() throws Exception {
         TestingTwoInputStreamOperator op = createTwoInputStreamOperator();
         FirstInputOfTwoInput input = new FirstInputOfTwoInput(op);
 
         input.processElement(element);
-        assertEquals(element, op.getCurrentElement1());
-        assertNull(op.getCurrentElement2());
+        assertThat(op.getCurrentElement1()).isEqualTo(element);
+        assertThat(op.getCurrentElement2()).isNull();
 
         input.processWatermark(watermark);
-        assertEquals(watermark, op.getCurrentWatermark1());
-        assertNull(op.getCurrentWatermark2());
+        assertThat(op.getCurrentWatermark1()).isEqualTo(watermark);
+        assertThat(op.getCurrentWatermark2()).isNull();
 
         input.processLatencyMarker(latencyMarker);
-        assertEquals(latencyMarker, op.getCurrentLatencyMarker1());
-        assertNull(op.getCurrentLatencyMarker2());
+        assertThat(op.getCurrentLatencyMarker1()).isEqualTo(latencyMarker);
+        assertThat(op.getCurrentLatencyMarker2()).isNull();
     }
 
     @Test
-    public void testSecondInputOfTwoInput() throws Exception {
+    void testSecondInputOfTwoInput() throws Exception {
         TestingTwoInputStreamOperator op = createTwoInputStreamOperator();
         SecondInputOfTwoInput input = new SecondInputOfTwoInput(op);
 
         input.processElement(element);
-        assertEquals(element, op.getCurrentElement2());
-        assertNull(op.getCurrentElement1());
+        assertThat(op.getCurrentElement2()).isEqualTo(element);
+        assertThat(op.getCurrentElement1()).isNull();
 
         input.processWatermark(watermark);
-        assertEquals(watermark, op.getCurrentWatermark2());
-        assertNull(op.getCurrentWatermark1());
+        assertThat(op.getCurrentWatermark2()).isEqualTo(watermark);
+        assertThat(op.getCurrentWatermark1()).isNull();
 
         input.processLatencyMarker(latencyMarker);
-        assertEquals(latencyMarker, op.getCurrentLatencyMarker2());
-        assertNull(op.getCurrentLatencyMarker1());
+        assertThat(op.getCurrentLatencyMarker2()).isEqualTo(latencyMarker);
+        assertThat(op.getCurrentLatencyMarker1()).isNull();
     }
 }

@@ -17,20 +17,26 @@
  */
 package org.apache.flink.table.planner.plan.stream.sql
 
-import org.apache.flink.api.common.typeinfo.TypeInformation
-import org.apache.flink.api.java.typeutils.TypeExtractor
-import org.apache.flink.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.planner.plan.utils.MyPojo
+import org.apache.flink.table.planner.runtime.utils.JavaUserDefinedScalarFunctions.NonDeterministicUdf
+import org.apache.flink.table.planner.runtime.utils.JavaUserDefinedTableFunctions.StringSplit
 import org.apache.flink.table.planner.utils.TableTestBase
+import org.apache.flink.table.types.AbstractDataType
 
-import org.junit.Test
+import org.assertj.core.api.Assertions.assertThatExceptionOfType
+import org.junit.jupiter.api.{BeforeEach, Test}
 
 import java.sql.{Date, Time, Timestamp}
 
 class CalcTest extends TableTestBase {
   private val util = streamTestUtil()
-  util.addTableSource[(Long, Int, String)]("MyTable", 'a, 'b, 'c)
+
+  @BeforeEach
+  def setup(): Unit = {
+    util.addTableSource[(Long, Int, String)]("MyTable", 'a, 'b, 'c)
+    util.addTemporarySystemFunction("random_udf", new NonDeterministicUdf)
+  }
 
   @Test
   def testOnlyProject(): Unit = {
@@ -96,9 +102,10 @@ class CalcTest extends TableTestBase {
     util.verifyExecPlan("SELECT MyTable2.a.*, c, MyTable2.b.* FROM MyTable2")
   }
 
-  @Test(expected = classOf[ValidationException])
+  @Test
   def testInvalidFields(): Unit = {
-    util.tableEnv.sqlQuery("SELECT a, foo FROM MyTable")
+    assertThatExceptionOfType(classOf[ValidationException])
+      .isThrownBy(() => util.tableEnv.sqlQuery("SELECT a, foo FROM MyTable"))
   }
 
   @Test
@@ -149,7 +156,7 @@ class CalcTest extends TableTestBase {
   def testPojoType(): Unit = {
     util.addTableSource(
       "MyTable4",
-      Array[TypeInformation[_]](TypeExtractor.createTypeInfo(classOf[MyPojo])),
+      Array[AbstractDataType[_]](DataTypes.RAW(classOf[MyPojo])),
       Array("a"))
     util.verifyExecPlan("SELECT a FROM MyTable4")
   }
@@ -157,8 +164,9 @@ class CalcTest extends TableTestBase {
   @Test
   def testMixedType(): Unit = {
     util.addTableSource[(String, Int, Timestamp)]("MyTable5", 'a, 'b, 'c)
-    util.verifyExecPlan("SELECT ROW(a, b, c), ARRAY[12, b], MAP[a, c] FROM MyTable5 " +
-      "WHERE (a, b, c) = ('foo', 12, TIMESTAMP '1984-07-12 14:34:24')")
+    util.verifyExecPlan(
+      "SELECT ROW(a, b, c), ARRAY[12, b], MAP[a, c] FROM MyTable5 " +
+        "WHERE (a, b, c) = ('foo', 12, TIMESTAMP '1984-07-12 14:34:24')")
   }
 
   @Test
@@ -179,5 +187,47 @@ class CalcTest extends TableTestBase {
   @Test
   def testDecimalMapWithDifferentPrecision(): Unit = {
     util.verifyExecPlan("SELECT MAP['a', 0.12, 'b', 0.5]")
+  }
+
+  @Test
+  def testCalcMergeWithNonDeterministicExpr(): Unit = {
+    val sqlQuery = "SELECT a, a1 FROM (SELECT a, random_udf(b) AS a1 FROM MyTable) t WHERE a1 > 10"
+    util.verifyExecPlan(sqlQuery)
+  }
+
+  @Test
+  def testCalcMergeWithNonDeterministicExpr2(): Unit = {
+    val sqlQuery = "SELECT a FROM (SELECT a, b FROM MyTable) t WHERE random_udf(b) > 10"
+    util.verifyRelPlan(sqlQuery)
+  }
+
+  @Test
+  def testCalcMergeWithCorrelate(): Unit = {
+    util.addTemporarySystemFunction("str_split", new StringSplit())
+    val sqlQuery =
+      """
+        |SELECT a, r FROM (
+        | SELECT a, random_udf(b) r FROM (
+        |  select a, b, c1 FROM MyTable, LATERAL TABLE(str_split(c)) AS T(c1)
+        | ) t
+        |)
+        |WHERE r > 10
+        |""".stripMargin
+    util.verifyRelPlan(sqlQuery)
+  }
+
+  @Test
+  def testRowTypeEquality(): Unit = {
+    util.addTable(s"""
+                     |CREATE TABLE src (
+                     |  my_row ROW(a INT, b STRING)
+                     |) WITH (
+                     |  'connector' = 'values'
+                     |  )
+                     |""".stripMargin)
+
+    util.verifyExecPlan(s"""
+                           |SELECT my_row = ROW(1, 'str') from src
+                           |""".stripMargin)
   }
 }

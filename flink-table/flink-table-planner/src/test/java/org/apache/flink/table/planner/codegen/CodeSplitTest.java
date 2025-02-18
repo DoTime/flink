@@ -18,13 +18,14 @@
 
 package org.apache.flink.table.planner.codegen;
 
-import org.apache.flink.core.testutils.FlinkMatchers;
-import org.apache.flink.table.api.TableConfig;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.table.api.config.TableConfigOptions;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.binary.BinaryRowData;
 import org.apache.flink.table.data.writer.BinaryRowWriter;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
+import org.apache.flink.table.planner.calcite.FlinkTypeSystem;
 import org.apache.flink.table.planner.codegen.sort.ComparatorCodeGenerator;
 import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
@@ -41,9 +42,7 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
-import org.hamcrest.MatcherAssert;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -55,16 +54,19 @@ import java.util.List;
 import java.util.Random;
 import java.util.function.Consumer;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
+
 /** Tests for code generations with code splitting. */
-public class CodeSplitTest {
+class CodeSplitTest {
 
     private final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
     @Test
-    public void testJoinCondition() {
+    void testJoinCondition() {
         int numFields = 200;
 
-        FlinkTypeFactory typeFactory = FlinkTypeFactory.INSTANCE();
+        FlinkTypeFactory typeFactory = new FlinkTypeFactory(classLoader, FlinkTypeSystem.INSTANCE);
         RexBuilder builder = new RexBuilder(typeFactory);
         RelDataType intType = typeFactory.createFieldTypeFromLogicalType(new IntType());
         RexNode[] conditions = new RexNode[numFields];
@@ -90,21 +92,25 @@ public class CodeSplitTest {
             rowData1.setField(random.nextInt(numFields), 1);
         }
 
-        Consumer<TableConfig> consumer =
+        Consumer<ReadableConfig> consumer =
                 tableConfig -> {
                     JoinCondition instance =
                             JoinUtil.generateConditionFunction(
-                                            tableConfig, joinCondition, rowType, rowType)
+                                            tableConfig,
+                                            Thread.currentThread().getContextClassLoader(),
+                                            joinCondition,
+                                            rowType,
+                                            rowType)
                                     .newInstance(classLoader);
                     for (int i = 0; i < 100; i++) {
-                        Assert.assertEquals(result, instance.apply(rowData1, rowData2));
+                        assertThat(instance.apply(rowData1, rowData2)).isEqualTo(result);
                     }
                 };
         runTest(consumer);
     }
 
     @Test
-    public void testHashFunction() {
+    void testHashFunction() {
         int numFields = 1000;
 
         RowType rowType = getIntRowType(numFields);
@@ -118,24 +124,26 @@ public class CodeSplitTest {
             rowData.setField(i, i);
         }
 
-        Consumer<TableConfig> consumer =
+        Consumer<ReadableConfig> consumer =
                 tableConfig -> {
                     HashFunction instance =
                             HashCodeGenerator.generateRowHash(
-                                            new CodeGeneratorContext(tableConfig),
+                                            new CodeGeneratorContext(
+                                                    tableConfig,
+                                                    Thread.currentThread().getContextClassLoader()),
                                             rowType,
                                             "",
                                             hashFields)
                                     .newInstance(classLoader);
                     for (int i = 0; i < 100; i++) {
-                        Assert.assertEquals(-1433414860, instance.hashCode(rowData));
+                        assertThat(instance.hashCode(rowData)).isEqualTo(-1433414860);
                     }
                 };
         runTest(consumer);
     }
 
     @Test
-    public void testRecordComparator() {
+    void testRecordComparator() {
         int numFields = 600;
 
         RowType rowType = getIntRowType(numFields);
@@ -160,13 +168,18 @@ public class CodeSplitTest {
             rowData1.setField(random.nextInt(numFields), 100);
         }
 
-        Consumer<TableConfig> consumer =
+        Consumer<ReadableConfig> consumer =
                 tableConfig -> {
                     RecordComparator instance =
-                            ComparatorCodeGenerator.gen(tableConfig, "", rowType, sortSpec)
+                            ComparatorCodeGenerator.gen(
+                                            tableConfig,
+                                            Thread.currentThread().getContextClassLoader(),
+                                            "",
+                                            rowType,
+                                            sortSpec)
                                     .newInstance(classLoader);
                     for (int i = 0; i < 100; i++) {
-                        Assert.assertEquals(result, instance.compare(rowData1, rowData2));
+                        assertThat(instance.compare(rowData1, rowData2)).isEqualTo(result);
                     }
                 };
         runTest(consumer);
@@ -174,7 +187,7 @@ public class CodeSplitTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testProjection() {
+    void testProjection() {
         int numFields = 1000;
 
         RowType rowType = getIntRowType(numFields);
@@ -195,18 +208,20 @@ public class CodeSplitTest {
         }
         outputWriter.complete();
 
-        Consumer<TableConfig> consumer =
+        Consumer<ReadableConfig> consumer =
                 tableConfig -> {
                     Projection instance =
                             ProjectionCodeGenerator.generateProjection(
-                                            new CodeGeneratorContext(tableConfig),
+                                            new CodeGeneratorContext(
+                                                    tableConfig,
+                                                    Thread.currentThread().getContextClassLoader()),
                                             "",
                                             rowType,
                                             rowType,
                                             order.stream().mapToInt(i -> i).toArray())
                                     .newInstance(classLoader);
                     for (int i = 0; i < 100; i++) {
-                        Assert.assertEquals(output, instance.apply(input));
+                        assertThat(instance.apply(input)).isEqualTo(output);
                     }
                 };
         runTest(consumer);
@@ -218,13 +233,13 @@ public class CodeSplitTest {
         return RowType.of(fieldTypes);
     }
 
-    private void runTest(Consumer<TableConfig> consumer) {
-        TableConfig splitTableConfig = new TableConfig();
+    private void runTest(Consumer<ReadableConfig> consumer) {
+        Configuration splitTableConfig = new Configuration();
         splitTableConfig.set(TableConfigOptions.MAX_LENGTH_GENERATED_CODE, 4000);
         splitTableConfig.set(TableConfigOptions.MAX_MEMBERS_GENERATED_CODE, 10000);
         consumer.accept(splitTableConfig);
 
-        TableConfig noSplitTableConfig = new TableConfig();
+        Configuration noSplitTableConfig = new Configuration();
         noSplitTableConfig.set(TableConfigOptions.MAX_LENGTH_GENERATED_CODE, Integer.MAX_VALUE);
         noSplitTableConfig.set(TableConfigOptions.MAX_MEMBERS_GENERATED_CODE, Integer.MAX_VALUE);
         PrintStream originalStdOut = System.out;
@@ -237,9 +252,9 @@ public class CodeSplitTest {
                                 public void write(int b) throws IOException {}
                             }));
             consumer.accept(noSplitTableConfig);
-            Assert.fail("Expecting compiler exception");
+            fail("Expecting compiler exception");
         } catch (Exception e) {
-            MatcherAssert.assertThat(e, FlinkMatchers.containsMessage("grows beyond 64 KB"));
+            assertThat(e).hasRootCauseMessage("Code grows beyond 64 KB");
         } finally {
             // set stdout back
             System.setOut(originalStdOut);

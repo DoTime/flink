@@ -20,15 +20,16 @@ package org.apache.flink.table.planner.catalog;
 
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.EnvironmentSettings;
+import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.api.TableEnvironment;
-import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.api.internal.TableEnvironmentImpl;
 import org.apache.flink.table.catalog.Catalog;
 import org.apache.flink.table.catalog.CatalogPartitionImpl;
 import org.apache.flink.table.catalog.CatalogPartitionSpec;
-import org.apache.flink.table.catalog.CatalogTableImpl;
+import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.catalog.ConnectorCatalogTable;
 import org.apache.flink.table.catalog.ObjectPath;
+import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.catalog.exceptions.TableNotExistException;
 import org.apache.flink.table.catalog.exceptions.TablePartitionedException;
 import org.apache.flink.table.catalog.stats.CatalogColumnStatistics;
@@ -40,6 +41,7 @@ import org.apache.flink.table.catalog.stats.CatalogColumnStatisticsDataLong;
 import org.apache.flink.table.catalog.stats.CatalogColumnStatisticsDataString;
 import org.apache.flink.table.catalog.stats.CatalogTableStatistics;
 import org.apache.flink.table.catalog.stats.Date;
+import org.apache.flink.table.legacy.api.TableSchema;
 import org.apache.flink.table.plan.stats.TableStats;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.metadata.FlinkRelMetadataQuery;
@@ -47,13 +49,12 @@ import org.apache.flink.table.planner.plan.stats.ValueInterval$;
 import org.apache.flink.table.planner.utils.TableTestUtil;
 import org.apache.flink.table.planner.utils.TestPartitionableSourceFactory;
 import org.apache.flink.table.planner.utils.TestTableSource;
-import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.utils.DateTimeUtils;
 
-import org.apache.calcite.avatica.util.DateTimeUtils;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.util.ImmutableBitSet;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -61,41 +62,37 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** Test for Catalog Statistics. */
-public class CatalogStatisticsTest {
+class CatalogStatisticsTest {
 
-    private String databaseName = "default_database";
+    private final String databaseName = "default_database";
 
-    private TableSchema tableSchema =
-            TableSchema.builder()
-                    .fields(
-                            new String[] {"b1", "l2", "s3", "d4", "dd5"},
-                            new DataType[] {
-                                DataTypes.BOOLEAN(),
-                                DataTypes.BIGINT(),
-                                DataTypes.STRING(),
-                                DataTypes.DATE(),
-                                DataTypes.DOUBLE()
-                            })
-                    .build();
+    private final ResolvedSchema resolvedSchema =
+            ResolvedSchema.physical(
+                    Arrays.asList("b1", "l2", "s3", "d4", "dd5"),
+                    Arrays.asList(
+                            DataTypes.BOOLEAN(),
+                            DataTypes.BIGINT(),
+                            DataTypes.STRING(),
+                            DataTypes.DATE(),
+                            DataTypes.DOUBLE()));
 
     private TableEnvironment tEnv;
     private Catalog catalog;
 
-    @Before
-    public void setup() {
+    @BeforeEach
+    void setup() {
         EnvironmentSettings settings = EnvironmentSettings.newInstance().inBatchMode().build();
         tEnv = TableEnvironment.create(settings);
         catalog = tEnv.getCatalog(tEnv.getCurrentCatalog()).orElse(null);
-        assertNotNull(catalog);
+        assertThat(catalog).isNotNull();
     }
 
     @Test
-    public void testGetStatsFromCatalogForConnectorCatalogTable() throws Exception {
+    void testGetStatsFromCatalogForConnectorCatalogTable() throws Exception {
+        final TableSchema tableSchema = TableSchema.fromResolvedSchema(resolvedSchema);
         catalog.createTable(
                 new ObjectPath(databaseName, "T1"),
                 ConnectorCatalogTable.source(new TestTableSource(true, tableSchema), true),
@@ -113,7 +110,7 @@ public class CatalogStatisticsTest {
     }
 
     @Test
-    public void testGetStatsFromCatalogForCatalogTableImpl() throws Exception {
+    void testGetStatsFromCatalogForCatalogTableImpl() throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("connector.type", "filesystem");
         properties.put("connector.property-version", "1");
@@ -123,13 +120,14 @@ public class CatalogStatisticsTest {
         properties.put("format.property-version", "1");
         properties.put("format.field-delimiter", ";");
 
+        final Schema schema = Schema.newBuilder().fromResolvedSchema(resolvedSchema).build();
         catalog.createTable(
                 new ObjectPath(databaseName, "T1"),
-                new CatalogTableImpl(tableSchema, properties, ""),
+                CatalogTable.newBuilder().schema(schema).comment("").options(properties).build(),
                 false);
         catalog.createTable(
                 new ObjectPath(databaseName, "T2"),
-                new CatalogTableImpl(tableSchema, properties, ""),
+                CatalogTable.newBuilder().schema(schema).comment("").options(properties).build(),
                 false);
 
         alterTableStatistics(catalog, "T1");
@@ -150,7 +148,7 @@ public class CatalogStatisticsTest {
     }
 
     @Test
-    public void testGetPartitionStatsFromCatalog() throws Exception {
+    void testGetPartitionStatsFromCatalog() throws Exception {
         TestPartitionableSourceFactory.createTemporaryTable(tEnv, "PartT", true);
         createPartitionStats("A", 1);
         createPartitionColumnStats("A", 1);
@@ -165,25 +163,28 @@ public class CatalogStatisticsTest {
                                                 "select id, name from PartT where part1 = 'A'")));
         FlinkRelMetadataQuery mq =
                 FlinkRelMetadataQuery.reuseOrCreate(t1.getCluster().getMetadataQuery());
-        assertEquals(200.0, mq.getRowCount(t1), 0.0);
-        assertEquals(Arrays.asList(8.0, 43.5), mq.getAverageColumnSizes(t1));
+        assertThat(mq.getRowCount(t1)).isEqualTo(200.0);
+        assertThat(mq.getAverageColumnSizes(t1)).isEqualTo(Arrays.asList(8.0, 43.5));
 
         // long type
-        assertEquals(46.0, mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null), 0.0);
-        assertEquals(154.0, mq.getColumnNullCount(t1, 0), 0.0);
-        assertEquals(
-                ValueInterval$.MODULE$.apply(
-                        BigDecimal.valueOf(-123L), BigDecimal.valueOf(763322L), true, true),
-                mq.getColumnInterval(t1, 0));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null)).isEqualTo(23.0);
+        assertThat(mq.getColumnNullCount(t1, 0)).isEqualTo(154.0);
+        assertThat(mq.getColumnInterval(t1, 0))
+                .isEqualTo(
+                        ValueInterval$.MODULE$.apply(
+                                BigDecimal.valueOf(-123L),
+                                BigDecimal.valueOf(763322L),
+                                true,
+                                true));
 
         // string type
-        assertEquals(40.0, mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null), 0.0);
-        assertEquals(0.0, mq.getColumnNullCount(t1, 1), 0.0);
-        assertNull(mq.getColumnInterval(t1, 1));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null)).isEqualTo(20.0);
+        assertThat(mq.getColumnNullCount(t1, 1)).isEqualTo(0.0);
+        assertThat(mq.getColumnInterval(t1, 1)).isNull();
     }
 
     @Test
-    public void testGetPartitionStatsWithUnknownRowCount() throws Exception {
+    void testGetPartitionStatsWithUnknownRowCount() throws Exception {
         TestPartitionableSourceFactory.createTemporaryTable(tEnv, "PartT", true);
         createPartitionStats("A", 1, TableStats.UNKNOWN.getRowCount());
         createPartitionColumnStats("A", 1);
@@ -198,25 +199,22 @@ public class CatalogStatisticsTest {
                                                 "select id, name from PartT where part1 = 'A'")));
         FlinkRelMetadataQuery mq =
                 FlinkRelMetadataQuery.reuseOrCreate(t1.getCluster().getMetadataQuery());
-        assertEquals(100_000_000, mq.getRowCount(t1), 0.0);
-        assertEquals(Arrays.asList(8.0, 43.5), mq.getAverageColumnSizes(t1));
+        assertThat(mq.getRowCount(t1)).isEqualTo(100_000_000);
+        assertThat(mq.getAverageColumnSizes(t1)).isEqualTo(Arrays.asList(4.0, 12.0));
 
         // long type
-        assertEquals(46.0, mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null), 0.0);
-        assertEquals(154.0, mq.getColumnNullCount(t1, 0), 0.0);
-        assertEquals(
-                ValueInterval$.MODULE$.apply(
-                        BigDecimal.valueOf(-123L), BigDecimal.valueOf(763322L), true, true),
-                mq.getColumnInterval(t1, 0));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null)).isNull();
+        assertThat(mq.getColumnNullCount(t1, 0)).isNull();
+        assertThat(mq.getColumnInterval(t1, 0)).isNull();
 
         // string type
-        assertEquals(40.0, mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null), 0.0);
-        assertEquals(0.0, mq.getColumnNullCount(t1, 1), 0.0);
-        assertNull(mq.getColumnInterval(t1, 1));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null)).isNull();
+        assertThat(mq.getColumnNullCount(t1, 1)).isNull();
+        assertThat(mq.getColumnInterval(t1, 1)).isNull();
     }
 
     @Test
-    public void testGetPartitionStatsWithUnknownColumnStats() throws Exception {
+    void testGetPartitionStatsWithUnknownColumnStats() throws Exception {
         TestPartitionableSourceFactory.createTemporaryTable(tEnv, "PartT", true);
         createPartitionStats("A", 1);
         createPartitionStats("A", 2);
@@ -230,20 +228,20 @@ public class CatalogStatisticsTest {
                                                 "select id, name from PartT where part1 = 'A'")));
         FlinkRelMetadataQuery mq =
                 FlinkRelMetadataQuery.reuseOrCreate(t1.getCluster().getMetadataQuery());
-        assertEquals(200.0, mq.getRowCount(t1), 0.0);
+        assertThat(mq.getRowCount(t1)).isEqualTo(200.0);
 
         // long type
-        assertNull(mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null));
-        assertNull(mq.getColumnNullCount(t1, 0));
-        assertNull(mq.getColumnInterval(t1, 0));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null)).isNull();
+        assertThat(mq.getColumnNullCount(t1, 0)).isNull();
+        assertThat(mq.getColumnInterval(t1, 0)).isNull();
 
         // string type
-        assertNull(mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null));
-        assertNull(mq.getColumnNullCount(t1, 1));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null)).isNull();
+        assertThat(mq.getColumnNullCount(t1, 1)).isNull();
     }
 
     @Test
-    public void testGetPartitionStatsWithSomeUnknownColumnStats() throws Exception {
+    void testGetPartitionStatsWithSomeUnknownColumnStats() throws Exception {
         TestPartitionableSourceFactory.createTemporaryTable(tEnv, "PartT", true);
         createPartitionStats("A", 1);
         createPartitionColumnStats("A", 1, true);
@@ -258,16 +256,16 @@ public class CatalogStatisticsTest {
                                                 "select id, name from PartT where part1 = 'A'")));
         FlinkRelMetadataQuery mq =
                 FlinkRelMetadataQuery.reuseOrCreate(t1.getCluster().getMetadataQuery());
-        assertEquals(200.0, mq.getRowCount(t1), 0.0);
+        assertThat(mq.getRowCount(t1)).isEqualTo(200.0);
 
         // long type
-        assertNull(mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null));
-        assertNull(mq.getColumnNullCount(t1, 0));
-        assertNull(mq.getColumnInterval(t1, 0));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(0), null)).isNull();
+        assertThat(mq.getColumnNullCount(t1, 0)).isNull();
+        assertThat(mq.getColumnInterval(t1, 0)).isNull();
 
         // string type
-        assertNull(mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null));
-        assertNull(mq.getColumnNullCount(t1, 1));
+        assertThat(mq.getDistinctRowCount(t1, ImmutableBitSet.of(1), null)).isNull();
+        assertThat(mq.getColumnNullCount(t1, 1)).isNull();
     }
 
     private void createPartitionStats(String part1, int part2) throws Exception {
@@ -342,49 +340,56 @@ public class CatalogStatisticsTest {
         RelNode t1 = TableTestUtil.toRelNode(tEnv.sqlQuery("select * from " + tableName));
         FlinkRelMetadataQuery mq =
                 FlinkRelMetadataQuery.reuseOrCreate(t1.getCluster().getMetadataQuery());
-        assertEquals(100.0, mq.getRowCount(t1), 0.0);
+        assertThat(mq.getRowCount(t1)).isEqualTo(100.0);
         assertColumnStatistics(t1, mq);
     }
 
     private void assertColumnStatistics(RelNode rel, FlinkRelMetadataQuery mq) {
-        assertEquals(Arrays.asList(1.0, 8.0, 43.5, 12.0, 8.0), mq.getAverageColumnSizes(rel));
+        assertThat(mq.getAverageColumnSizes(rel))
+                .isEqualTo(Arrays.asList(1.0, 8.0, 43.5, 12.0, 8.0));
 
         // boolean type
-        assertEquals(2.0, mq.getDistinctRowCount(rel, ImmutableBitSet.of(0), null), 0.0);
-        assertEquals(5.0, mq.getColumnNullCount(rel, 0), 0.0);
-        assertNull(mq.getColumnInterval(rel, 0));
+        assertThat(mq.getDistinctRowCount(rel, ImmutableBitSet.of(0), null)).isEqualTo(2.0);
+        assertThat(mq.getColumnNullCount(rel, 0)).isEqualTo(5.0);
+        assertThat(mq.getColumnInterval(rel, 0)).isNull();
 
         // long type
-        assertEquals(23.0, mq.getDistinctRowCount(rel, ImmutableBitSet.of(1), null), 0.0);
-        assertEquals(77.0, mq.getColumnNullCount(rel, 1), 0.0);
-        assertEquals(
-                ValueInterval$.MODULE$.apply(
-                        BigDecimal.valueOf(-123L), BigDecimal.valueOf(763322L), true, true),
-                mq.getColumnInterval(rel, 1));
+        assertThat(mq.getDistinctRowCount(rel, ImmutableBitSet.of(1), null)).isEqualTo(23.0);
+        assertThat(mq.getColumnNullCount(rel, 1)).isEqualTo(77.0);
+        assertThat(mq.getColumnInterval(rel, 1))
+                .isEqualTo(
+                        ValueInterval$.MODULE$.apply(
+                                BigDecimal.valueOf(-123L),
+                                BigDecimal.valueOf(763322L),
+                                true,
+                                true));
 
         // string type
-        assertEquals(20.0, mq.getDistinctRowCount(rel, ImmutableBitSet.of(2), null), 0.0);
-        assertEquals(0.0, mq.getColumnNullCount(rel, 2), 0.0);
-        assertNull(mq.getColumnInterval(rel, 2));
+        assertThat(mq.getDistinctRowCount(rel, ImmutableBitSet.of(2), null)).isEqualTo(20.0);
+        assertThat(mq.getColumnNullCount(rel, 2)).isEqualTo(0.0);
+        assertThat(mq.getColumnInterval(rel, 2)).isNull();
 
         // date type
-        assertEquals(100.0, mq.getDistinctRowCount(rel, ImmutableBitSet.of(3), null), 0.0);
-        assertEquals(0.0, mq.getColumnNullCount(rel, 3), 0.0);
-        assertEquals(
-                ValueInterval$.MODULE$.apply(
-                        java.sql.Date.valueOf(DateTimeUtils.unixDateToString(71)),
-                        java.sql.Date.valueOf(DateTimeUtils.unixDateToString(17923)),
-                        true,
-                        true),
-                mq.getColumnInterval(rel, 3));
+        assertThat(mq.getDistinctRowCount(rel, ImmutableBitSet.of(3), null)).isEqualTo(100.0);
+        assertThat(mq.getColumnNullCount(rel, 3)).isEqualTo(0.0);
+        assertThat(mq.getColumnInterval(rel, 3))
+                .isEqualTo(
+                        ValueInterval$.MODULE$.apply(
+                                java.sql.Date.valueOf(DateTimeUtils.formatDate(71)),
+                                java.sql.Date.valueOf(DateTimeUtils.formatDate(17923)),
+                                true,
+                                true));
 
         // double type
-        assertEquals(73.0, mq.getDistinctRowCount(rel, ImmutableBitSet.of(4), null), 0.0);
-        assertEquals(27.0, mq.getColumnNullCount(rel, 4), 0.0);
-        assertEquals(
-                ValueInterval$.MODULE$.apply(
-                        BigDecimal.valueOf(-123.35), BigDecimal.valueOf(7633.22), true, true),
-                mq.getColumnInterval(rel, 4));
+        assertThat(mq.getDistinctRowCount(rel, ImmutableBitSet.of(4), null)).isEqualTo(73.0);
+        assertThat(mq.getColumnNullCount(rel, 4)).isEqualTo(27.0);
+        assertThat(mq.getColumnInterval(rel, 4))
+                .isEqualTo(
+                        ValueInterval$.MODULE$.apply(
+                                BigDecimal.valueOf(-123.35),
+                                BigDecimal.valueOf(7633.22),
+                                true,
+                                true));
     }
 
     private void alterTableStatisticsWithUnknownRowCount(Catalog catalog, String tableName)
@@ -403,7 +408,7 @@ public class CatalogStatisticsTest {
         FlinkRelMetadataQuery mq =
                 FlinkRelMetadataQuery.reuseOrCreate(t1.getCluster().getMetadataQuery());
         // 1E8 is default value defined in FlinkPreparingTableBase
-        assertEquals(1E8, mq.getRowCount(t1), 0.0);
+        assertThat(mq.getRowCount(t1)).isEqualTo(1E8);
         assertColumnStatistics(t1, mq);
     }
 }

@@ -20,16 +20,17 @@ package org.apache.flink.table.api;
 
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
+import org.apache.flink.table.catalog.TableDistribution;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import java.util.Collections;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link TableDescriptor}. */
-public class TableDescriptorTest {
+class TableDescriptorTest {
 
     private static final ConfigOption<Boolean> OPTION_A =
             ConfigOptions.key("a").booleanType().noDefaultValue();
@@ -41,7 +42,7 @@ public class TableDescriptorTest {
             ConfigOptions.key("key.format").stringType().noDefaultValue();
 
     @Test
-    public void testBasic() {
+    void testBasic() {
         final Schema schema =
                 Schema.newBuilder()
                         .column("f0", DataTypes.STRING())
@@ -52,30 +53,34 @@ public class TableDescriptorTest {
         final TableDescriptor descriptor =
                 TableDescriptor.forConnector("test-connector")
                         .schema(schema)
+                        .distributedByHash(1, "f0")
                         .partitionedBy("f0")
                         .comment("Test Comment")
                         .build();
 
-        assertTrue(descriptor.getSchema().isPresent());
-        assertEquals(schema, descriptor.getSchema().get());
+        assertThat(descriptor.getSchema()).isPresent();
+        assertThat(descriptor.getSchema().get()).isEqualTo(schema);
 
-        assertEquals(1, descriptor.getPartitionKeys().size());
-        assertEquals("f0", descriptor.getPartitionKeys().get(0));
+        assertThat(descriptor.getDistribution())
+                .contains(TableDistribution.ofHash(Collections.singletonList("f0"), 1));
 
-        assertEquals(1, descriptor.getOptions().size());
-        assertEquals("test-connector", descriptor.getOptions().get("connector"));
+        assertThat(descriptor.getPartitionKeys()).hasSize(1);
+        assertThat(descriptor.getPartitionKeys().get(0)).isEqualTo("f0");
 
-        assertEquals("Test Comment", descriptor.getComment().orElse(null));
+        assertThat(descriptor.getOptions()).hasSize(1);
+        assertThat(descriptor.getOptions().get("connector")).isEqualTo("test-connector");
+
+        assertThat(descriptor.getComment().orElse(null)).isEqualTo("Test Comment");
     }
 
     @Test
-    public void testNoSchema() {
+    void testNoSchema() {
         final TableDescriptor descriptor = TableDescriptor.forConnector("test-connector").build();
-        assertFalse(descriptor.getSchema().isPresent());
+        assertThat(descriptor.getSchema()).isNotPresent();
     }
 
     @Test
-    public void testOptions() {
+    void testOptions() {
         final TableDescriptor descriptor =
                 TableDescriptor.forConnector("test-connector")
                         .schema(Schema.newBuilder().build())
@@ -84,28 +89,28 @@ public class TableDescriptorTest {
                         .option("c", "C")
                         .build();
 
-        assertEquals(4, descriptor.getOptions().size());
-        assertEquals("test-connector", descriptor.getOptions().get("connector"));
-        assertEquals("false", descriptor.getOptions().get("a"));
-        assertEquals("42", descriptor.getOptions().get("b"));
-        assertEquals("C", descriptor.getOptions().get("c"));
+        assertThat(descriptor.getOptions()).hasSize(4);
+        assertThat(descriptor.getOptions().get("connector")).isEqualTo("test-connector");
+        assertThat(descriptor.getOptions().get("a")).isEqualTo("false");
+        assertThat(descriptor.getOptions().get("b")).isEqualTo("42");
+        assertThat(descriptor.getOptions().get("c")).isEqualTo("C");
     }
 
     @Test
-    public void testFormatBasic() {
+    void testFormatBasic() {
         final TableDescriptor descriptor =
                 TableDescriptor.forConnector("test-connector")
                         .schema(Schema.newBuilder().build())
                         .format("json")
                         .build();
 
-        assertEquals(2, descriptor.getOptions().size());
-        assertEquals("test-connector", descriptor.getOptions().get("connector"));
-        assertEquals("json", descriptor.getOptions().get("format"));
+        assertThat(descriptor.getOptions()).hasSize(2);
+        assertThat(descriptor.getOptions().get("connector")).isEqualTo("test-connector");
+        assertThat(descriptor.getOptions().get("format")).isEqualTo("json");
     }
 
     @Test
-    public void testFormatWithFormatDescriptor() {
+    void testFormatWithFormatDescriptor() {
         final TableDescriptor descriptor =
                 TableDescriptor.forConnector("test-connector")
                         .schema(Schema.newBuilder().build())
@@ -118,16 +123,16 @@ public class TableDescriptorTest {
                                         .build())
                         .build();
 
-        assertEquals(5, descriptor.getOptions().size());
-        assertEquals("test-connector", descriptor.getOptions().get("connector"));
-        assertEquals("test-format", descriptor.getOptions().get("key.format"));
-        assertEquals("true", descriptor.getOptions().get("key.test-format.a"));
-        assertEquals("42", descriptor.getOptions().get("key.test-format.b"));
-        assertEquals("C", descriptor.getOptions().get("key.test-format.c"));
+        assertThat(descriptor.getOptions()).hasSize(5);
+        assertThat(descriptor.getOptions().get("connector")).isEqualTo("test-connector");
+        assertThat(descriptor.getOptions().get("key.format")).isEqualTo("test-format");
+        assertThat(descriptor.getOptions().get("key.test-format.a")).isEqualTo("true");
+        assertThat(descriptor.getOptions().get("key.test-format.b")).isEqualTo("42");
+        assertThat(descriptor.getOptions().get("key.test-format.c")).isEqualTo("C");
     }
 
     @Test
-    public void testToString() {
+    void testToString() {
         final Schema schema = Schema.newBuilder().column("f0", DataTypes.STRING()).build();
 
         final FormatDescriptor formatDescriptor =
@@ -136,41 +141,87 @@ public class TableDescriptorTest {
         final TableDescriptor tableDescriptor =
                 TableDescriptor.forConnector("test-connector")
                         .schema(schema)
+                        .distributedByRange(3, "f0")
                         .partitionedBy("f0")
                         .option(OPTION_A, true)
                         .format(formatDescriptor)
                         .comment("Test Comment")
                         .build();
 
-        assertEquals("test-format[{a=false}]", formatDescriptor.toString());
-        assertEquals(
-                "(\n"
-                        + "  `f0` STRING\n"
-                        + ")\n"
-                        + "COMMENT 'Test Comment'\n"
-                        + "PARTITIONED BY (`f0`)\n"
-                        + "WITH (\n"
-                        + "  'a' = 'true',\n"
-                        + "  'connector' = 'test-connector',\n"
-                        + "  'test-format.a' = 'false',\n"
-                        + "  'format' = 'test-format'\n"
-                        + ")",
-                tableDescriptor.toString());
+        assertThat(formatDescriptor.toString()).isEqualTo("test-format[{a=false}]");
+        assertThat(tableDescriptor.toString())
+                .isEqualTo(
+                        "(\n"
+                                + "  `f0` STRING\n"
+                                + ")\n"
+                                + "COMMENT 'Test Comment'\n"
+                                + "DISTRIBUTED BY RANGE(`f0`) INTO 3 BUCKETS\n"
+                                + "PARTITIONED BY (`f0`)\n"
+                                + "WITH (\n"
+                                + "  'a' = 'true',\n"
+                                + "  'connector' = 'test-connector',\n"
+                                + "  'test-format.a' = 'false',\n"
+                                + "  'format' = 'test-format'\n"
+                                + ")");
     }
 
     @Test
-    public void testFormatDescriptorWithPrefix() {
-        assertThrows(
-                "Format options set using #format(FormatDescriptor) should not contain the prefix 'test-format.', but found 'test-format.a'.",
-                ValidationException.class,
-                () -> {
-                    TableDescriptor.forConnector("test-connector")
-                            .schema(Schema.newBuilder().build())
-                            .format(
-                                    FormatDescriptor.forFormat("test-format")
-                                            .option("test-format.a", "A")
-                                            .build())
-                            .build();
-                });
+    void testFormatDescriptorWithPrefix() {
+        assertThatThrownBy(
+                        () ->
+                                TableDescriptor.forConnector("test-connector")
+                                        .schema(Schema.newBuilder().build())
+                                        .format(
+                                                FormatDescriptor.forFormat("test-format")
+                                                        .option("test-format.a", "A")
+                                                        .build())
+                                        .build())
+                .as(
+                        "Format options set using #format(FormatDescriptor) should not contain the prefix 'test-format.', but found 'test-format.a'.")
+                .isInstanceOf(ValidationException.class);
+    }
+
+    @Test
+    void testDistributedBy() {
+        assertThat(getTableDescriptorBuilder().distributedByHash(3, "f0").build().toString())
+                .contains("DISTRIBUTED BY HASH(`f0`) INTO 3 BUCKETS\n");
+        assertThat(getTableDescriptorBuilder().distributedByHash("f0").build().toString())
+                .contains("DISTRIBUTED BY HASH(`f0`)\n");
+        assertThat(getTableDescriptorBuilder().distributedByRange(3, "f0").build().toString())
+                .contains("DISTRIBUTED BY RANGE(`f0`) INTO 3 BUCKETS\n");
+        assertThat(getTableDescriptorBuilder().distributedByRange("f0").build().toString())
+                .contains("DISTRIBUTED BY RANGE(`f0`)\n");
+        assertThat(getTableDescriptorBuilder().distributedBy(3, "f0").build().toString())
+                .contains("DISTRIBUTED BY (`f0`) INTO 3 BUCKETS\n");
+        assertThat(getTableDescriptorBuilder().distributedBy("f0").build().toString())
+                .contains("DISTRIBUTED BY (`f0`)\n");
+        assertThat(getTableDescriptorBuilder().distributedInto(3).build().toString())
+                .contains("DISTRIBUTED INTO 3 BUCKETS\n");
+    }
+
+    @Test
+    void testDistributedByExceptions() {
+        assertThatThrownBy(() -> getTableDescriptorBuilder().distributedByHash(3))
+                .as("At least one bucket key must be defined for a distribution.")
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> getTableDescriptorBuilder().distributedBy())
+                .as("At least one bucket key must be defined for a distribution.")
+                .isInstanceOf(ValidationException.class);
+        assertThatThrownBy(() -> getTableDescriptorBuilder().distributedByRange(3))
+                .as("At least one bucket key must be defined for a distribution.")
+                .isInstanceOf(ValidationException.class);
+    }
+
+    private static TableDescriptor.Builder getTableDescriptorBuilder() {
+        final Schema schema = Schema.newBuilder().column("f0", DataTypes.STRING()).build();
+        final FormatDescriptor formatDescriptor =
+                FormatDescriptor.forFormat("test-format").option(OPTION_A, false).build();
+
+        return TableDescriptor.forConnector("test-connector")
+                .schema(schema)
+                .partitionedBy("f0")
+                .option(OPTION_A, true)
+                .format(formatDescriptor)
+                .comment("Test Comment");
     }
 }

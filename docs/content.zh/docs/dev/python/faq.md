@@ -32,7 +32,7 @@ under the License.
 
 ## 准备Python虚拟环境
 
-您可以下载[便捷脚本]({% link downloads/setup-pyflink-virtual-env.sh %})，以准备可在Mac OS和大多数Linux发行版上使用的Python虚拟环境包(virtual env zip)。
+您可以下载[便捷脚本](/downloads/setup-pyflink-virtual-env.sh)，以准备可在Mac OS和大多数Linux发行版上使用的Python虚拟环境包(virtual env zip)。
 您可以指定PyFlink的版本，来生成对应的PyFlink版本所需的Python虚拟环境，否则将安装最新版本的PyFlink所对应的Python虚拟环境。
 
 {{< stable >}}
@@ -64,10 +64,10 @@ PyFlink作业可能依赖jar文件，比如connector，Java UDF等。
 
 ```python
 # 注意：仅支持本地文件URL（以"file:"开头）。
-table_env.get_config().get_configuration().set_string("pipeline.jars", "file:///my/jar/path/connector.jar;file:///my/jar/path/udf.jar")
+table_env.get_config().set("pipeline.jars", "file:///my/jar/path/connector.jar;file:///my/jar/path/udf.jar")
 
 # 注意：路径必须指定协议（例如：文件——"file"），并且用户应确保在客户端和群集上都可以访问这些URL。
-table_env.get_config().get_configuration().set_string("pipeline.classpaths", "file:///my/jar/path/connector.jar;file:///my/jar/path/udf.jar")
+table_env.get_config().set("pipeline.classpaths", "file:///my/jar/path/connector.jar;file:///my/jar/path/udf.jar")
 ```
 
 有关添加Java依赖项的API的详细信息，请参阅[相关文档]({{< ref "docs/dev/python/dependency_management" >}}#java-dependency-in-python-program)。

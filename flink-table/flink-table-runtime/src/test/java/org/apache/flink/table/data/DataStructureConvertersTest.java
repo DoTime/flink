@@ -30,13 +30,8 @@ import org.apache.flink.types.Row;
 import org.apache.flink.types.RowKind;
 import org.apache.flink.util.InstantiationUtil;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import javax.annotation.Nullable;
 
@@ -87,15 +82,13 @@ import static org.apache.flink.table.api.DataTypes.TIMESTAMP_WITH_TIME_ZONE;
 import static org.apache.flink.table.api.DataTypes.VARBINARY;
 import static org.apache.flink.table.api.DataTypes.VARCHAR;
 import static org.apache.flink.table.api.DataTypes.YEAR;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.junit.Assert.assertArrayEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link DataStructureConverters}. */
-@RunWith(Parameterized.class)
-public class DataStructureConvertersTest {
+class DataStructureConvertersTest {
 
-    @Parameters(name = "{index}: {0}")
-    public static List<TestSpec> testData() {
+    static List<TestSpec> testData() {
         // ordered by definition in DataStructureConverters
         return asList(
                 TestSpec.forDataType(CHAR(5))
@@ -365,40 +358,38 @@ public class DataStructureConvertersTest {
                                 GenericPojo.class, new GenericPojo<>(LocalDate.ofEpochDay(123))));
     }
 
-    @Parameter public TestSpec testSpec;
-
-    @Rule public ExpectedException thrown = ExpectedException.none();
-
-    @Test
-    public void testConversions() {
-        if (testSpec.expectedErrorMessage != null) {
-            thrown.expect(TableException.class);
-            thrown.expectMessage(equalTo(testSpec.expectedErrorMessage));
-        }
+    @ParameterizedTest(name = "{index}: {0}")
+    @MethodSource("testData")
+    void testConversions(final TestSpec testSpec) {
         for (Map.Entry<Class<?>, Object> from : testSpec.conversions.entrySet()) {
             final DataType fromDataType = testSpec.dataType.bridgedTo(from.getKey());
 
-            final DataStructureConverter<Object, Object> fromConverter =
-                    simulateSerialization(DataStructureConverters.getConverter(fromDataType));
-            fromConverter.open(DataStructureConvertersTest.class.getClassLoader());
+            if (testSpec.expectedErrorMessage != null) {
+                assertThatThrownBy(() -> DataStructureConverters.getConverter(fromDataType))
+                        .isInstanceOf(TableException.class)
+                        .hasMessage(testSpec.expectedErrorMessage);
+            } else {
+                final DataStructureConverter<Object, Object> fromConverter =
+                        simulateSerialization(DataStructureConverters.getConverter(fromDataType));
+                fromConverter.open(DataStructureConvertersTest.class.getClassLoader());
 
-            final Object internalValue = fromConverter.toInternalOrNull(from.getValue());
+                final Object internalValue = fromConverter.toInternalOrNull(from.getValue());
 
-            final Object anotherValue = testSpec.conversionsWithAnotherValue.get(from.getKey());
-            if (anotherValue != null) {
-                fromConverter.toInternalOrNull(anotherValue);
-            }
+                final Object anotherValue = testSpec.conversionsWithAnotherValue.get(from.getKey());
+                if (anotherValue != null) {
+                    fromConverter.toInternalOrNull(anotherValue);
+                }
 
-            for (Map.Entry<Class<?>, Object> to : testSpec.conversions.entrySet()) {
-                final DataType toDataType = testSpec.dataType.bridgedTo(to.getKey());
+                for (Map.Entry<Class<?>, Object> to : testSpec.conversions.entrySet()) {
+                    final DataType toDataType = testSpec.dataType.bridgedTo(to.getKey());
 
-                final DataStructureConverter<Object, Object> toConverter =
-                        simulateSerialization(DataStructureConverters.getConverter(toDataType));
-                toConverter.open(DataStructureConvertersTest.class.getClassLoader());
+                    final DataStructureConverter<Object, Object> toConverter =
+                            simulateSerialization(DataStructureConverters.getConverter(toDataType));
+                    toConverter.open(DataStructureConvertersTest.class.getClassLoader());
 
-                assertArrayEquals(
-                        new Object[] {to.getValue()},
-                        new Object[] {toConverter.toExternalOrNull(internalValue)});
+                    assertThat(toConverter.toExternalOrNull(internalValue))
+                            .isEqualTo(to.getValue());
+                }
             }
         }
     }

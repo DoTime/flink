@@ -31,18 +31,18 @@ import org.apache.flink.table.module.Module;
 import org.apache.flink.table.planner.factories.TableFactoryHarness;
 import org.apache.flink.table.planner.runtime.utils.StreamingTestBase;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 import java.util.Set;
 
-import static org.apache.flink.core.testutils.CommonTestUtils.assertThrows;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for modules. */
-public class ModuleITCase extends StreamingTestBase {
+class ModuleITCase extends StreamingTestBase {
 
     @Test
-    public void testTableSourceFactory() {
+    void testTableSourceFactory() {
         tEnv().createTemporaryTable(
                         "T",
                         TableFactoryHarness.newBuilder()
@@ -61,10 +61,9 @@ public class ModuleITCase extends StreamingTestBase {
         final Table table = tEnv().from("T");
 
         // Sanity check: without our module loaded, the factory discovery process is used.
-        assertThrows(
-                "Discovered factory should not be used",
-                UnsupportedOperationException.class,
-                table::explain);
+        assertThatThrownBy(table::explain)
+                .as("Discovered factory should not be used")
+                .isInstanceOf(UnsupportedOperationException.class);
 
         // The module has precedence over factory discovery.
         tEnv().loadModule("M", new SourceSinkFactoryOverwriteModule());
@@ -72,7 +71,7 @@ public class ModuleITCase extends StreamingTestBase {
     }
 
     @Test
-    public void testTableSinkFactory() {
+    void testTableSinkFactory() {
         tEnv().createTemporaryTable(
                         "T",
                         TableFactoryHarness.newBuilder()
@@ -89,10 +88,9 @@ public class ModuleITCase extends StreamingTestBase {
                                 .build());
 
         // Sanity check: without our module loaded, the factory discovery process is used.
-        assertThrows(
-                "Discovered factory should not be used",
-                UnsupportedOperationException.class,
-                () -> tEnv().explainSql("INSERT INTO T SELECT 1"));
+        assertThatThrownBy(() -> tEnv().explainSql("INSERT INTO T SELECT 1"))
+                .as("Discovered factory should not be used")
+                .isInstanceOf(UnsupportedOperationException.class);
 
         // The module has precedence over factory discovery.
         tEnv().loadModule("M", new SourceSinkFactoryOverwriteModule());

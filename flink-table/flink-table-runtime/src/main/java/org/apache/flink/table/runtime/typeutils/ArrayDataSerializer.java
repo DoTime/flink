@@ -84,10 +84,12 @@ public class ArrayDataSerializer extends TypeSerializer<ArrayData> {
     public ArrayData copy(ArrayData from) {
         if (from instanceof GenericArrayData) {
             return copyGenericArray((GenericArrayData) from);
+        } else if (from instanceof ColumnarArrayData) {
+            return copyColumnarArray((ColumnarArrayData) from);
         } else if (from instanceof BinaryArrayData) {
             return ((BinaryArrayData) from).copy();
         } else {
-            return copyColumnarArray((ColumnarArrayData) from);
+            return toBinaryArray(from).copy();
         }
     }
 
@@ -278,8 +280,8 @@ public class ArrayDataSerializer extends TypeSerializer<ArrayData> {
             implements TypeSerializerSnapshot<ArrayData> {
         private static final int CURRENT_VERSION = 3;
 
-        private LogicalType previousType;
-        private TypeSerializer previousEleSer;
+        private LogicalType eleType;
+        private TypeSerializer eleSer;
 
         @SuppressWarnings("unused")
         public ArrayDataSerializerSnapshot() {
@@ -287,8 +289,8 @@ public class ArrayDataSerializer extends TypeSerializer<ArrayData> {
         }
 
         ArrayDataSerializerSnapshot(LogicalType eleType, TypeSerializer eleSer) {
-            this.previousType = eleType;
-            this.previousEleSer = eleSer;
+            this.eleType = eleType;
+            this.eleSer = eleSer;
         }
 
         @Override
@@ -299,8 +301,8 @@ public class ArrayDataSerializer extends TypeSerializer<ArrayData> {
         @Override
         public void writeSnapshot(DataOutputView out) throws IOException {
             DataOutputViewStream outStream = new DataOutputViewStream(out);
-            InstantiationUtil.serializeObject(outStream, previousType);
-            InstantiationUtil.serializeObject(outStream, previousEleSer);
+            InstantiationUtil.serializeObject(outStream, eleType);
+            InstantiationUtil.serializeObject(outStream, eleSer);
         }
 
         @Override
@@ -308,10 +310,10 @@ public class ArrayDataSerializer extends TypeSerializer<ArrayData> {
                 throws IOException {
             try {
                 DataInputViewStream inStream = new DataInputViewStream(in);
-                this.previousType =
-                        InstantiationUtil.deserializeObject(inStream, userCodeClassLoader);
-                this.previousEleSer =
-                        InstantiationUtil.deserializeObject(inStream, userCodeClassLoader);
+                this.eleType =
+                        InstantiationUtil.deserializeObject(inStream, userCodeClassLoader, true);
+                this.eleSer =
+                        InstantiationUtil.deserializeObject(inStream, userCodeClassLoader, true);
             } catch (ClassNotFoundException e) {
                 throw new IOException(e);
             }
@@ -319,19 +321,20 @@ public class ArrayDataSerializer extends TypeSerializer<ArrayData> {
 
         @Override
         public TypeSerializer<ArrayData> restoreSerializer() {
-            return new ArrayDataSerializer(previousType, previousEleSer);
+            return new ArrayDataSerializer(eleType, eleSer);
         }
 
         @Override
         public TypeSerializerSchemaCompatibility<ArrayData> resolveSchemaCompatibility(
-                TypeSerializer<ArrayData> newSerializer) {
-            if (!(newSerializer instanceof ArrayDataSerializer)) {
+                TypeSerializerSnapshot<ArrayData> oldSerializerSnapshot) {
+            if (!(oldSerializerSnapshot instanceof ArrayDataSerializerSnapshot)) {
                 return TypeSerializerSchemaCompatibility.incompatible();
             }
 
-            ArrayDataSerializer newArrayDataSerializer = (ArrayDataSerializer) newSerializer;
-            if (!previousType.equals(newArrayDataSerializer.eleType)
-                    || !previousEleSer.equals(newArrayDataSerializer.eleSer)) {
+            ArrayDataSerializerSnapshot oldArrayDataSerializerSnapshot =
+                    (ArrayDataSerializerSnapshot) oldSerializerSnapshot;
+            if (!eleType.equals(oldArrayDataSerializerSnapshot.eleType)
+                    || !eleSer.equals(oldArrayDataSerializerSnapshot.eleSer)) {
                 return TypeSerializerSchemaCompatibility.incompatible();
             } else {
                 return TypeSerializerSchemaCompatibility.compatibleAsIs();

@@ -19,74 +19,81 @@
 package org.apache.flink.table.planner.functions;
 
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.configuration.StateChangelogOptions;
-import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
-import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import org.apache.flink.configuration.StateBackendOptions;
+import org.apache.flink.legacy.table.connector.source.SourceFunctionProvider;
+import org.apache.flink.streaming.api.functions.source.legacy.SourceFunction;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Schema;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableDescriptor;
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableResult;
+import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.source.DynamicTableSource;
-import org.apache.flink.table.connector.source.SourceFunctionProvider;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.expressions.Expression;
+import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.functions.BuiltInFunctionDefinition;
+import org.apache.flink.table.operations.AggregateQueryOperation;
+import org.apache.flink.table.operations.ProjectQueryOperation;
 import org.apache.flink.table.planner.factories.TableFactoryHarness;
 import org.apache.flink.table.types.DataType;
-import org.apache.flink.test.util.MiniClusterWithClientResource;
+import org.apache.flink.test.junit5.MiniClusterExtension;
 import org.apache.flink.types.Row;
 import org.apache.flink.types.RowKind;
 import org.apache.flink.util.CloseableIterator;
 import org.apache.flink.util.Preconditions;
 
-import org.junit.ClassRule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
-import static org.apache.flink.table.types.DataType.getFieldCount;
+import static org.apache.flink.core.testutils.FlinkAssertions.anyCauseMatches;
+import static org.apache.flink.runtime.state.StateBackendLoader.HASHMAP_STATE_BACKEND_NAME;
+import static org.apache.flink.runtime.state.StateBackendLoader.ROCKSDB_STATE_BACKEND_NAME;
+import static org.apache.flink.table.test.TableAssertions.assertThat;
 import static org.apache.flink.table.types.DataType.getFieldDataTypes;
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /** Test base for testing aggregate {@link BuiltInFunctionDefinition built-in functions}. */
-@RunWith(Parameterized.class)
-public class BuiltInAggregateFunctionTestBase {
+@Execution(ExecutionMode.CONCURRENT)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+abstract class BuiltInAggregateFunctionTestBase {
 
-    @ClassRule
-    public static MiniClusterWithClientResource miniClusterResource =
-            new MiniClusterWithClientResource(
-                    new MiniClusterResourceConfiguration.Builder()
-                            .setNumberTaskManagers(1)
-                            .setNumberSlotsPerTaskManager(1)
-                            .build());
+    @RegisterExtension
+    public static final MiniClusterExtension MINI_CLUSTER_EXTENSION = new MiniClusterExtension();
 
-    @Parameter public TestSpec testSpec;
+    abstract Stream<TestSpec> getTestCaseSpecs();
 
-    @Test
-    public void testFunction() throws Exception {
-        final TableEnvironment tEnv =
-                TableEnvironment.create(EnvironmentSettings.inStreamingMode());
-        Configuration configuration = tEnv.getConfig().getConfiguration();
-        // see https://issues.apache.org/jira/browse/FLINK-26092
-        configuration.set(StateChangelogOptions.ENABLE_STATE_CHANGE_LOG, false);
-        final Table sourceTable = asTable(tEnv, testSpec.sourceRowType, testSpec.sourceRows);
+    final Stream<BuiltInFunctionTestBase.TestCase> getTestCases() {
+        return this.getTestCaseSpecs().flatMap(TestSpec::getTestCases);
+    }
 
-        for (final TestItem testItem : testSpec.testItems) {
-            testItem.execute(tEnv, sourceTable);
-        }
+    @ParameterizedTest
+    @MethodSource("getTestCases")
+    final void test(BuiltInFunctionTestBase.TestCase testCase) throws Throwable {
+        testCase.execute();
     }
 
     protected static Table asTable(TableEnvironment tEnv, DataType sourceRowType, List<Row> rows) {
@@ -123,22 +130,6 @@ public class BuiltInAggregateFunctionTestBase {
         };
     }
 
-    protected static void assertRows(List<Row> expectedRows, TableResult tableResult) {
-        final List<Row> actualRows =
-                materializeResult(tableResult).stream()
-                        .sorted(Comparator.comparing(Objects::toString))
-                        .collect(Collectors.toList());
-        final List<Row> sortedExpectedRows =
-                expectedRows.stream()
-                        .sorted(Comparator.comparing(Objects::toString))
-                        .collect(Collectors.toList());
-
-        assertEquals(
-                String.format("%n%nExpected:%n%s%n%nActual:%n%s", sortedExpectedRows, actualRows),
-                sortedExpectedRows,
-                actualRows);
-    }
-
     private static List<Row> materializeResult(TableResult tableResult) {
         try (final CloseableIterator<Row> iterator = tableResult.collect()) {
             final List<Row> actualRows = new ArrayList<>();
@@ -167,10 +158,31 @@ public class BuiltInAggregateFunctionTestBase {
 
     // ---------------------------------------------------------------------------------------------
 
+    protected static final class TableApiAggSpec {
+        private final List<Expression> selectExpr;
+        private final List<Expression> groupByExpr;
+
+        public TableApiAggSpec(List<Expression> selectExpr, List<Expression> groupByExpr) {
+            this.selectExpr = selectExpr;
+            this.groupByExpr = groupByExpr;
+        }
+
+        public static TableApiAggSpec groupBySelect(
+                List<Expression> groupByExpr, Expression... selectExpr) {
+            return new TableApiAggSpec(
+                    Arrays.stream(selectExpr).collect(Collectors.toList()), groupByExpr);
+        }
+
+        public static TableApiAggSpec select(Expression... selectExpr) {
+            return new TableApiAggSpec(
+                    Arrays.stream(selectExpr).collect(Collectors.toList()), null);
+        }
+    }
+
     /** Test specification. */
     protected static class TestSpec {
 
-        private final BuiltInFunctionDefinition definition;
+        private final @Nullable BuiltInFunctionDefinition definition;
         private final List<TestItem> testItems = new ArrayList<>();
 
         private @Nullable String description;
@@ -179,11 +191,15 @@ public class BuiltInAggregateFunctionTestBase {
         private List<Row> sourceRows;
 
         private TestSpec(BuiltInFunctionDefinition definition) {
-            this.definition = Preconditions.checkNotNull(definition);
+            this.definition = definition;
         }
 
         static TestSpec forFunction(BuiltInFunctionDefinition definition) {
             return new TestSpec(definition);
+        }
+
+        static TestSpec forExpression(String expr) {
+            return new TestSpec(null).withDescription(expr);
         }
 
         TestSpec withDescription(String description) {
@@ -204,16 +220,29 @@ public class BuiltInAggregateFunctionTestBase {
         }
 
         TestSpec testApiResult(
-                Function<Table, Table> tableApiSpec,
+                List<Expression> selectExpr,
+                List<Expression> groupByExpr,
                 DataType expectedRowType,
                 List<Row> expectedRows) {
-            this.testItems.add(new TableApiTestItem(tableApiSpec, expectedRowType, expectedRows));
+            this.testItems.add(
+                    new TableApiTestItem(selectExpr, groupByExpr, expectedRowType, expectedRows));
+            return this;
+        }
+
+        TestSpec testApiSqlResult(
+                List<Expression> selectExpr,
+                List<Expression> groupByExpr,
+                DataType expectedRowType,
+                List<Row> expectedRows) {
+            this.testItems.add(
+                    new TableApiSqlResultTestItem(
+                            selectExpr, groupByExpr, expectedRowType, expectedRows));
             return this;
         }
 
         TestSpec testResult(
                 Function<Table, String> sqlSpec,
-                Function<Table, Table> tableApiSpec,
+                TableApiAggSpec tableApiSpec,
                 DataType expectedRowType,
                 List<Row> expectedRows) {
             return testResult(
@@ -222,19 +251,104 @@ public class BuiltInAggregateFunctionTestBase {
 
         TestSpec testResult(
                 Function<Table, String> sqlSpec,
-                Function<Table, Table> tableApiSpec,
+                TableApiAggSpec tableApiSpec,
                 DataType expectedSqlRowType,
                 DataType expectedTableApiRowType,
                 List<Row> expectedRows) {
             testSqlResult(sqlSpec, expectedSqlRowType, expectedRows);
-            testApiResult(tableApiSpec, expectedTableApiRowType, expectedRows);
+            testApiResult(
+                    tableApiSpec.selectExpr,
+                    tableApiSpec.groupByExpr,
+                    expectedTableApiRowType,
+                    expectedRows);
+            testApiSqlResult(
+                    tableApiSpec.selectExpr,
+                    tableApiSpec.groupByExpr,
+                    expectedSqlRowType,
+                    expectedRows);
             return this;
+        }
+
+        TestSpec testSqlValidationError(Function<Table, String> sqlSpec, String errorMessage) {
+            this.testItems.add(
+                    new SqlErrorTestItem(
+                            sqlSpec, null, ValidationException.class, errorMessage, true));
+            return this;
+        }
+
+        TestSpec testTableApiValidationError(TableApiAggSpec tableApiSpec, String errorMessage) {
+            this.testItems.add(
+                    new TableApiErrorTestItem(
+                            tableApiSpec.selectExpr,
+                            tableApiSpec.groupByExpr,
+                            null,
+                            ValidationException.class,
+                            errorMessage,
+                            true));
+            return this;
+        }
+
+        TestSpec testValidationError(
+                Function<Table, String> sqlSpec,
+                TableApiAggSpec tableApiSpec,
+                String errorMessage) {
+            testSqlValidationError(sqlSpec, errorMessage);
+            testTableApiValidationError(tableApiSpec, errorMessage);
+            return this;
+        }
+
+        TestSpec testSqlRuntimeError(
+                Function<Table, String> sqlSpec,
+                DataType expectedRowType,
+                Class<? extends Throwable> errorClass,
+                String errorMessage) {
+            this.testItems.add(
+                    new SqlErrorTestItem(
+                            sqlSpec, expectedRowType, errorClass, errorMessage, false));
+            return this;
+        }
+
+        private Executable createTestItemExecutable(TestItem testItem, String stateBackend) {
+            return () -> {
+                Configuration conf = new Configuration();
+                conf.set(StateBackendOptions.STATE_BACKEND, stateBackend);
+                final TableEnvironment tEnv =
+                        TableEnvironment.create(
+                                EnvironmentSettings.newInstance()
+                                        .inStreamingMode()
+                                        .withConfiguration(conf)
+                                        .build());
+                final Table sourceTable = asTable(tEnv, sourceRowType, sourceRows);
+
+                testItem.execute(tEnv, sourceTable);
+            };
+        }
+
+        Stream<BuiltInFunctionTestBase.TestCase> getTestCases() {
+            return Stream.concat(
+                    testItems.stream()
+                            .map(
+                                    testItem ->
+                                            new BuiltInFunctionTestBase.TestCase(
+                                                    testItem.toString(),
+                                                    createTestItemExecutable(
+                                                            testItem, HASHMAP_STATE_BACKEND_NAME))),
+                    testItems.stream()
+                            .map(
+                                    testItem ->
+                                            new BuiltInFunctionTestBase.TestCase(
+                                                    testItem.toString(),
+                                                    createTestItemExecutable(
+                                                            testItem,
+                                                            ROCKSDB_STATE_BACKEND_NAME))));
         }
 
         @Override
         public String toString() {
             final StringBuilder bob = new StringBuilder();
-            bob.append(definition.getName());
+            if (definition != null) {
+                bob.append(definition.getName());
+            }
             if (description != null) {
                 bob.append(" (");
                 bob.append(description);
@@ -245,9 +359,13 @@ public class BuiltInAggregateFunctionTestBase {
         }
     }
 
+    // ---------------------------------------------------------------------------------------------
+
     private interface TestItem {
         void execute(TableEnvironment tEnv, Table sourceTable);
     }
+
+    // ---------------------------------------------------------------------------------------------
 
     private abstract static class SuccessItem implements TestItem {
         private final @Nullable DataType expectedRowType;
@@ -266,12 +384,15 @@ public class BuiltInAggregateFunctionTestBase {
                 final DataType actualRowType =
                         tableResult.getResolvedSchema().toSourceRowDataType();
 
-                assertEquals(getFieldCount(expectedRowType), getFieldCount(actualRowType));
-                assertEquals(getFieldDataTypes(expectedRowType), getFieldDataTypes(actualRowType));
+                assertThat(actualRowType)
+                        .getChildren()
+                        .containsExactlyElementsOf(getFieldDataTypes(expectedRowType));
             }
 
             if (expectedRows != null) {
-                assertRows(expectedRows, tableResult);
+                final List<Row> actualRows = materializeResult(tableResult);
+
+                assertThat(actualRows).containsExactlyInAnyOrderElementsOf(expectedRows);
             }
         }
 
@@ -296,19 +417,245 @@ public class BuiltInAggregateFunctionTestBase {
     }
 
     private static class TableApiTestItem extends SuccessItem {
-        private final Function<Table, Table> spec;
+        private final List<Expression> selectExpr;
+        private final List<Expression> groupByExpr;
 
         public TableApiTestItem(
-                Function<Table, Table> spec,
+                List<Expression> selectExpr,
+                @Nullable List<Expression> groupByExpr,
                 @Nullable DataType expectedRowType,
                 @Nullable List<Row> expectedRows) {
             super(expectedRowType, expectedRows);
-            this.spec = spec;
+            this.selectExpr = selectExpr;
+            this.groupByExpr = groupByExpr;
         }
 
         @Override
         protected TableResult getResult(TableEnvironment tEnv, Table sourceTable) {
-            return spec.apply(sourceTable).execute();
+            if (groupByExpr != null) {
+                return sourceTable
+                        .groupBy(groupByExpr.toArray(new Expression[0]))
+                        .select(selectExpr.toArray(new Expression[0]))
+                        .execute();
+            } else {
+                return sourceTable.select(selectExpr.toArray(new Expression[0])).execute();
+            }
+        }
+    }
+
+    private static class TableApiSqlResultTestItem extends SuccessItem {
+
+        private final List<Expression> selectExpr;
+        private final List<Expression> groupByExpr;
+
+        public TableApiSqlResultTestItem(
+                List<Expression> selectExpr,
+                @Nullable List<Expression> groupByExpr,
+                @Nullable DataType expectedRowType,
+                @Nullable List<Row> expectedRows) {
+            super(expectedRowType, expectedRows);
+            this.selectExpr = selectExpr;
+            this.groupByExpr = groupByExpr;
+        }
+
+        @Override
+        protected TableResult getResult(TableEnvironment tEnv, Table sourceTable) {
+            final Table select;
+            if (groupByExpr != null) {
+                select =
+                        sourceTable
+                                .groupBy(groupByExpr.toArray(new Expression[0]))
+                                .select(selectExpr.toArray(new Expression[0]));
+
+            } else {
+                select = sourceTable.select(selectExpr.toArray(new Expression[0]));
+            }
+            final ProjectQueryOperation projectQueryOperation =
+                    (ProjectQueryOperation) select.getQueryOperation();
+            final AggregateQueryOperation aggQueryOperation =
+                    (AggregateQueryOperation) select.getQueryOperation().getChildren().get(0);
+
+            final List<ResolvedExpression> selectExpr =
+                    recreateSelectList(aggQueryOperation, projectQueryOperation);
+
+            final String selectAsSerializableString = toSerializableExpr(selectExpr);
+            final String groupByAsSerializableString =
+                    toSerializableExpr(aggQueryOperation.getGroupingExpressions());
+
+            final StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder
+                    .append("SELECT ")
+                    .append(selectAsSerializableString)
+                    .append(" FROM ")
+                    .append(sourceTable);
+            if (!groupByAsSerializableString.isEmpty()) {
+                stringBuilder.append(" GROUP BY ").append(groupByAsSerializableString);
+            }
+
+            return tEnv.sqlQuery(stringBuilder.toString()).execute();
+        }
+
+        @Nonnull
+        private static List<ResolvedExpression> recreateSelectList(
+                AggregateQueryOperation aggQueryOperation,
+                ProjectQueryOperation projectQueryOperation) {
+            final List<String> projectSchemaFields =
+                    projectQueryOperation.getResolvedSchema().getColumnNames();
+            final List<String> aggSchemaFields =
+                    aggQueryOperation.getResolvedSchema().getColumnNames();
+            return IntStream.range(0, projectSchemaFields.size())
+                    .mapToObj(
+                            idx -> {
+                                final int indexInAgg =
+                                        aggSchemaFields.indexOf(projectSchemaFields.get(idx));
+                                if (indexInAgg >= 0) {
+                                    final int groupingExprCount =
+                                            aggQueryOperation.getGroupingExpressions().size();
+                                    if (indexInAgg < groupingExprCount) {
+                                        return aggQueryOperation
+                                                .getGroupingExpressions()
+                                                .get(indexInAgg);
+                                    } else {
+                                        return aggQueryOperation
+                                                .getAggregateExpressions()
+                                                .get(indexInAgg - groupingExprCount);
+                                    }
+                                } else {
+                                    return projectQueryOperation.getProjectList().get(idx);
+                                }
+                            })
+                    .collect(Collectors.toList());
+        }
+
+        private static String toSerializableExpr(List<ResolvedExpression> expressions) {
+            return expressions.stream()
+                    .map(ResolvedExpression::asSerializableString)
+                    .collect(Collectors.joining(", "));
+        }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "[API as SQL] select: [%s] groupBy: [%s]",
+                    selectExpr.stream()
+                            .map(Expression::asSummaryString)
+                            .collect(Collectors.joining(", ")),
+                    groupByExpr != null
+                            ? groupByExpr.stream()
+                                    .map(Expression::asSummaryString)
+                                    .collect(Collectors.joining(", "))
+                            : "");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+
+    private abstract static class ErrorTestItem implements TestItem {
+        private final DataType expectedRowType;
+        private final Class<? extends Throwable> errorClass;
+        private final String errorMessage;
+        private final boolean expectedDuringValidation;
+
+        public ErrorTestItem(
+                @Nullable DataType expectedRowType,
+                @Nullable Class<? extends Throwable> errorClass,
+                @Nullable String errorMessage,
+                boolean expectedDuringValidation) {
+            Preconditions.checkState(errorClass != null || errorMessage != null);
+            this.expectedRowType = expectedRowType;
+            this.errorClass = errorClass;
+            this.errorMessage = errorMessage;
+            this.expectedDuringValidation = expectedDuringValidation;
+        }
+
+        Consumer<? super Throwable> errorMatcher() {
+            if (errorClass != null && errorMessage != null) {
+                return anyCauseMatches(errorClass, errorMessage);
+            }
+            if (errorMessage != null) {
+                return anyCauseMatches(errorMessage);
+            }
+            return anyCauseMatches(errorClass);
+        }
+
+        @Override
+        public void execute(TableEnvironment tEnv, Table sourceTable) {
+            AtomicReference<TableResult> tableResult = new AtomicReference<>();
+
+            Throwable t =
+                    catchThrowable(() -> tableResult.set(this.query(tEnv, sourceTable).execute()));
+
+            if (this.expectedDuringValidation) {
+                assertThat(t)
+                        .as("Expected a validation exception")
+                        .isNotNull()
+                        .satisfies(this.errorMatcher());
+                return;
+            } else {
+                assertThat(t).as("Error while validating the query").isNull();
+            }
+
+            if (expectedRowType != null) {
+                final DataType actualRowType =
+                        tableResult.get().getResolvedSchema().toSourceRowDataType();
+
+                assertThat(actualRowType)
+                        .getChildren()
+                        .containsExactlyElementsOf(getFieldDataTypes(expectedRowType));
+            }
+
+            assertThatThrownBy(() -> tableResult.get().await())
+                    .isNotNull()
+                    .satisfies(this.errorMatcher());
+        }
+
+        protected abstract Table query(TableEnvironment tEnv, @Nullable Table inputTable);
+    }
+
+    private static final class SqlErrorTestItem extends ErrorTestItem {
+        private final Function<Table, String> spec;
+
+        public SqlErrorTestItem(
+                Function<Table, String> spec,
+                @Nullable DataType expectedRowType,
+                Class<? extends Throwable> errorClass,
+                String errorMessage,
+                boolean expectedDuringValidation) {
+            super(expectedRowType, errorClass, errorMessage, expectedDuringValidation);
+            this.spec = spec;
+        }
+
+        @Override
+        protected Table query(TableEnvironment tEnv, Table sourceTable) {
+            return tEnv.sqlQuery(spec.apply(sourceTable));
+        }
+    }
+
+    private static final class TableApiErrorTestItem extends ErrorTestItem {
+        private final List<Expression> selectExpr;
+        private final List<Expression> groupByExpr;
+
+        public TableApiErrorTestItem(
+                List<Expression> selectExpr,
+                List<Expression> groupByExpr,
+                DataType expectedRowType,
+                Class<? extends Throwable> errorClass,
+                String errorMessage,
+                boolean expectedDuringValidation) {
+            super(expectedRowType, errorClass, errorMessage, expectedDuringValidation);
+            this.selectExpr = selectExpr;
+            this.groupByExpr = groupByExpr;
+        }
+
+        @Override
+        protected Table query(TableEnvironment tEnv, Table sourceTable) {
+            if (groupByExpr != null) {
+                return sourceTable
+                        .groupBy(groupByExpr.toArray(new Expression[0]))
+                        .select(selectExpr.toArray(new Expression[0]));
+            } else {
+                return sourceTable.select(selectExpr.toArray(new Expression[0]));
+            }
         }
     }
 

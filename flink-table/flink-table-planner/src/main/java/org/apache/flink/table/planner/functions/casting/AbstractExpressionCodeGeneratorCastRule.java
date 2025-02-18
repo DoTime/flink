@@ -19,6 +19,7 @@
 package org.apache.flink.table.planner.functions.casting;
 
 import org.apache.flink.table.data.utils.CastExecutor;
+import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
 import org.apache.flink.table.runtime.generated.CompileUtils;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.utils.LogicalTypeUtils;
@@ -104,6 +105,11 @@ abstract class AbstractExpressionCodeGeneratorCastRule<IN, OUT>
             CastRule.Context ctx) {
         return new CodeGeneratorCastRule.Context() {
             @Override
+            public boolean isPrinting() {
+                return ctx.isPrinting();
+            }
+
+            @Override
             public boolean legacyBehaviour() {
                 return ctx.legacyBehaviour();
             }
@@ -129,6 +135,11 @@ abstract class AbstractExpressionCodeGeneratorCastRule<IN, OUT>
             public String declareClassField(String type, String field, String initialization) {
                 throw new UnsupportedOperationException(
                         "No class field can be declared when using AbstractExpressionCodeGeneratorCastRule. You should use AbstractCodeGeneratorCastRule instead.");
+            }
+
+            @Override
+            public CodeGeneratorContext getCodeGeneratorContext() {
+                return ctx.getCodeGeneratorContext();
             }
         };
     }

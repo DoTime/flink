@@ -15,32 +15,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.apache.flink.table.planner.catalog
 
-import com.google.common.collect.Lists
+import org.apache.flink.table.api.{DataTypes, EnvironmentSettings, Schema, Table, TableDescriptor, TableEnvironment, TableException}
 import org.apache.flink.table.api.config.ExecutionConfigOptions
 import org.apache.flink.table.api.internal.TableEnvironmentImpl
-import org.apache.flink.table.api.{DataTypes, EnvironmentSettings, Schema, Table, TableDescriptor, TableEnvironment, TableException}
 import org.apache.flink.table.functions.ScalarFunction
 import org.apache.flink.table.planner.factories.TableFactoryHarness
 import org.apache.flink.table.planner.factories.utils.TestCollectionTableFactory
-import org.apache.flink.test.util.AbstractTestBase
+import org.apache.flink.table.planner.utils.TableITCaseBase
+import org.apache.flink.testutils.junit.extensions.parameterized.{ParameterizedTestExtension, Parameters}
 import org.apache.flink.types.Row
 import org.apache.flink.util.CollectionUtil
-import org.junit.Assert.assertEquals
-import org.junit.rules.ExpectedException
-import org.junit.runner.RunWith
-import org.junit.runners.Parameterized
-import org.junit.{Before, Rule, Test}
+
+import com.google.common.collect.Lists
+import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.api.{BeforeEach, TestTemplate}
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.extension.ExtendWith
 
 import java.util
+
 import scala.collection.JavaConversions._
 
 /** Test cases for view related DDLs. */
-@RunWith(classOf[Parameterized])
-class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
-  //~ Instance fields --------------------------------------------------------
+@ExtendWith(Array(classOf[ParameterizedTestExtension]))
+class CatalogViewITCase(isStreamingMode: Boolean) extends TableITCaseBase {
+  // ~ Instance fields --------------------------------------------------------
 
   private val settings = if (isStreamingMode) {
     EnvironmentSettings.newInstance().inStreamingMode().build()
@@ -50,35 +51,29 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
 
   private val tableEnv: TableEnvironment = TableEnvironmentImpl.create(settings)
 
-  var _expectedEx: ExpectedException = ExpectedException.none
-
-  @Rule
-  def expectedEx: ExpectedException = _expectedEx
-
-  @Before
+  @BeforeEach
   def before(): Unit = {
     tableEnv.getConfig
       .set(ExecutionConfigOptions.TABLE_EXEC_RESOURCE_DEFAULT_PARALLELISM, Int.box(1))
     TestCollectionTableFactory.reset()
   }
 
-  //~ Tools ------------------------------------------------------------------
+  // ~ Tools ------------------------------------------------------------------
 
-  implicit def rowOrdering: Ordering[Row] = Ordering.by((r : Row) => {
-    val builder = new StringBuilder
-    0 until r.getArity foreach(idx => builder.append(r.getField(idx)))
-    builder.toString()
-  })
+  implicit def rowOrdering: Ordering[Row] = Ordering.by(
+    (r: Row) => {
+      val builder = new StringBuilder
+      (0 until r.getArity).foreach(idx => builder.append(r.getField(idx)))
+      builder.toString()
+    })
 
-  def toRow(args: Any*):Row = {
+  def toRow(args: Any*): Row = {
     val row = new Row(args.length)
-    0 until args.length foreach {
-      i => row.setField(i, args(i))
-    }
+    (0 until args.length).foreach(i => row.setField(i, args(i)))
     row
   }
 
-  @Test
+  @TestTemplate
   def testCreateViewIfNotExistsTwice(): Unit = {
     val sourceData = List(
       toRow(1, "1000", 2),
@@ -132,7 +127,7 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
     assertEquals(sourceData.sorted, TestCollectionTableFactory.RESULT.sorted)
   }
 
-  @Test
+  @TestTemplate
   def testCreateViewWithoutFieldListAndWithStar(): Unit = {
     val sourceData = List(
       toRow(1, "1000", 2),
@@ -180,7 +175,7 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
     assertEquals(sourceData.sorted, TestCollectionTableFactory.RESULT.sorted)
   }
 
-  @Test
+  @TestTemplate
   def testCreateTemporaryView(): Unit = {
     val sourceData = List(
       toRow(1, "1000", 2),
@@ -228,7 +223,7 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
     assertEquals(sourceData.sorted, TestCollectionTableFactory.RESULT.sorted)
   }
 
-  @Test
+  @TestTemplate
   def testTemporaryViewMaskPermanentViewWithSameName(): Unit = {
     val sourceData = List(
       toRow(1, "1000", 2),
@@ -310,30 +305,34 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
   }
 
   private def buildTableDescriptor(): TableDescriptor = {
-    val tableDescriptor: TableDescriptor = TableFactoryHarness.newBuilder()
+    val tableDescriptor: TableDescriptor = TableFactoryHarness
+      .newBuilder()
       .boundedScanSource()
-      .schema(Schema.newBuilder()
-        .column("a", DataTypes.INT())
-        .column("b", DataTypes.STRING())
-        .column("c", DataTypes.INT())
-        .build())
+      .schema(
+        Schema
+          .newBuilder()
+          .column("a", DataTypes.INT())
+          .column("b", DataTypes.STRING())
+          .column("c", DataTypes.INT())
+          .build())
       .sink()
       .build()
     tableDescriptor
   }
 
-  @Test
+  @TestTemplate
   def testShowCreateQueryOperationCatalogView(): Unit = {
 
     val table: Table = tableEnv.from(buildTableDescriptor())
-    _expectedEx.expect(classOf[TableException])
-    _expectedEx.expectMessage(
-      "SHOW CREATE VIEW is not supported for views registered by Table API.")
+
     tableEnv.createTemporaryView("QueryOperationCatalogView", table)
-    tableEnv.executeSql("show create view QueryOperationCatalogView")
+
+    assertThatThrownBy(() => tableEnv.executeSql("show create view QueryOperationCatalogView"))
+      .hasMessageContaining("SHOW CREATE VIEW is not supported for views registered by Table API.")
+      .isInstanceOf[TableException]
   }
 
-  @Test
+  @TestTemplate
   def testShowCreateTemporaryView(): Unit = {
 
     tableEnv.createTable("T1", buildTableDescriptor())
@@ -345,14 +344,21 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
         .executeSql("show create view t_v1")
         .collect()
     )
-    assertEquals(tView1ShowCreateResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE TEMPORARY VIEW `default_catalog`.`default_database`.`t_v1`(`a`, `b`, `c`) as
-           |SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
-           |FROM `default_catalog`.`default_database`.`T1`"""
-          .stripMargin
+    assertEquals(
+      tView1ShowCreateResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE TEMPORARY VIEW `default_catalog`.`default_database`.`t_v1` (
+             |  `a`,
+             |  `b`,
+             |  `c`
+             |)
+             |AS SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
+             |FROM `default_catalog`.`default_database`.`T1`
+             |""".stripMargin
+        )
       )
-    ))
+    )
 
     val tView2DDL: String = "CREATE TEMPORARY VIEW t_v2(d, e, f) AS SELECT a, b, c FROM T1"
     tableEnv.executeSql(tView2DDL)
@@ -361,17 +367,24 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
         .executeSql("show create view t_v2")
         .collect()
     )
-    assertEquals(tView2ShowCreateResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE TEMPORARY VIEW `default_catalog`.`default_database`.`t_v2`(`d`, `e`, `f`) as
-           |SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
-           |FROM `default_catalog`.`default_database`.`T1`"""
-          .stripMargin
+    assertEquals(
+      tView2ShowCreateResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE TEMPORARY VIEW `default_catalog`.`default_database`.`t_v2` (
+             |  `d`,
+             |  `e`,
+             |  `f`
+             |)
+             |AS SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
+             |FROM `default_catalog`.`default_database`.`T1`
+             |""".stripMargin
+        )
       )
-    ))
+    )
   }
 
-  @Test
+  @TestTemplate
   def testShowCreateCatalogView(): Unit = {
 
     tableEnv.createTable("T1", buildTableDescriptor())
@@ -383,32 +396,47 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
         .executeSql("show create view v1")
         .collect()
     )
-    assertEquals(view1ShowCreateResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE VIEW `default_catalog`.`default_database`.`v1`(`a`, `b`, `c`) as
-           |SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
-           |FROM `default_catalog`.`default_database`.`T1`"""
-          .stripMargin
+    assertEquals(
+      view1ShowCreateResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE VIEW `default_catalog`.`default_database`.`v1` (
+             |  `a`,
+             |  `b`,
+             |  `c`
+             |)
+             |AS SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
+             |FROM `default_catalog`.`default_database`.`T1`
+             |""".stripMargin
+        )
       )
-    ))
+    )
 
     val view2DDL: String = "CREATE VIEW v2(x, y, z) AS SELECT a, b, c FROM T1"
     tableEnv.executeSql(view2DDL)
     val view2ShowCreateResult: util.List[Row] = CollectionUtil.iteratorToList(
-      tableEnv.executeSql("show create view v2")
+      tableEnv
+        .executeSql("show create view v2")
         .collect()
     )
-    assertEquals(view2ShowCreateResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE VIEW `default_catalog`.`default_database`.`v2`(`x`, `y`, `z`) as
-           |SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
-           |FROM `default_catalog`.`default_database`.`T1`"""
-          .stripMargin
+    assertEquals(
+      view2ShowCreateResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE VIEW `default_catalog`.`default_database`.`v2` (
+             |  `x`,
+             |  `y`,
+             |  `z`
+             |)
+             |AS SELECT `T1`.`a`, `T1`.`b`, `T1`.`c`
+             |FROM `default_catalog`.`default_database`.`T1`
+             |""".stripMargin
+        )
       )
-    ))
+    )
   }
 
-  @Test
+  @TestTemplate
   def testShowCreateViewWithLeftJoinGroupBy(): Unit = {
     tableEnv.createTable("t1", buildTableDescriptor())
     tableEnv.createTable("t2", buildTableDescriptor())
@@ -416,54 +444,68 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
     val viewWithLeftJoinGroupByDDL: String =
       s"""create view viewLeftJoinGroupBy as
          |select max(t1.a) max_value
-         |from t1 left join t2 on t1.c=t2.c"""
-        .stripMargin
+         |from t1 left join t2 on t1.c=t2.c""".stripMargin
     tableEnv.executeSql(viewWithLeftJoinGroupByDDL)
     val showCreateLeftJoinGroupByViewResult: util.List[Row] = CollectionUtil.iteratorToList(
-      tableEnv.executeSql("show create view viewLeftJoinGroupBy")
+      tableEnv
+        .executeSql("show create view viewLeftJoinGroupBy")
         .collect()
     )
-    assertEquals(showCreateLeftJoinGroupByViewResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE VIEW `default_catalog`.`default_database`.`viewLeftJoinGroupBy`(`max_value`) as
-           |SELECT MAX(`t1`.`a`) AS `max_value`
-           |FROM `default_catalog`.`default_database`.`t1`
-           |LEFT JOIN `default_catalog`.`default_database`.`t2` ON `t1`.`c` = `t2`.`c`"""
-          .stripMargin
+    assertEquals(
+      showCreateLeftJoinGroupByViewResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE VIEW `default_catalog`.`default_database`.`viewLeftJoinGroupBy` (
+             |  `max_value`
+             |)
+             |AS SELECT MAX(`t1`.`a`) AS `max_value`
+             |FROM `default_catalog`.`default_database`.`t1`
+             |LEFT JOIN `default_catalog`.`default_database`.`t2` ON `t1`.`c` = `t2`.`c`
+             |""".stripMargin
+        )
       )
-    ))
+    )
   }
 
-  @Test
+  @TestTemplate
   def testShowCreateViewWithUDFOuterJoin(): Unit = {
     tableEnv.createTable("t1", buildTableDescriptor())
     tableEnv.createTable("t2", buildTableDescriptor())
-    tableEnv.createTemporarySystemFunction("udfEqualsOne", new ScalarFunction {
-      def eval(): Int ={
-        1
-      }
-    })
+    tableEnv.createTemporarySystemFunction(
+      "udfEqualsOne",
+      new ScalarFunction {
+        def eval(): Int = {
+          1
+        }
+      })
     val viewWithCrossJoinDDL: String =
       s"""create view viewWithCrossJoin as
-         |select udfEqualsOne() a, t1.a a1, t2.b b2 from t1 cross join t2"""
-        .stripMargin
+         |select udfEqualsOne() a, t1.a a1, t2.b b2 from t1 cross join t2""".stripMargin
     tableEnv.executeSql(viewWithCrossJoinDDL)
     val showCreateCrossJoinViewResult: util.List[Row] = CollectionUtil.iteratorToList(
-      tableEnv.executeSql("show create view viewWithCrossJoin")
+      tableEnv
+        .executeSql("show create view viewWithCrossJoin")
         .collect()
     )
-    assertEquals(showCreateCrossJoinViewResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE VIEW `default_catalog`.`default_database`.`viewWithCrossJoin`(`a`, `a1`, `b2`) as
-           |SELECT `udfEqualsOne`() AS `a`, `t1`.`a` AS `a1`, `t2`.`b` AS `b2`
-           |FROM `default_catalog`.`default_database`.`t1`
-           |CROSS JOIN `default_catalog`.`default_database`.`t2`"""
-          .stripMargin
+    assertEquals(
+      showCreateCrossJoinViewResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE VIEW `default_catalog`.`default_database`.`viewWithCrossJoin` (
+             |  `a`,
+             |  `a1`,
+             |  `b2`
+             |)
+             |AS SELECT `udfEqualsOne`() AS `a`, `t1`.`a` AS `a1`, `t2`.`b` AS `b2`
+             |FROM `default_catalog`.`default_database`.`t1`
+             |CROSS JOIN `default_catalog`.`default_database`.`t2`
+             |""".stripMargin
+        )
       )
-    ))
+    )
   }
 
-  @Test
+  @TestTemplate
   def testShowCreateViewWithInnerJoin(): Unit = {
 
     tableEnv.createTable("t1", buildTableDescriptor())
@@ -472,30 +514,35 @@ class CatalogViewITCase(isStreamingMode: Boolean) extends AbstractTestBase {
       s"""create view innerJoinView as
          |select t1.a a1, t2.b b2
          |from t1 inner join t2
-         |on t1.c=t2.c"""
-        .stripMargin
+         |on t1.c=t2.c""".stripMargin
     tableEnv.executeSql(viewWithInnerJoinDDL)
     val showCreateInnerJoinViewResult: util.List[Row] = CollectionUtil.iteratorToList(
-      tableEnv.executeSql("show create view innerJoinView")
+      tableEnv
+        .executeSql("show create view innerJoinView")
         .collect()
     )
-    assertEquals(showCreateInnerJoinViewResult, Lists.newArrayList(
-      Row.of(
-        s"""CREATE VIEW `default_catalog`.`default_database`.`innerJoinView`(`a1`, `b2`) as
-           |SELECT `t1`.`a` AS `a1`, `t2`.`b` AS `b2`
-           |FROM `default_catalog`.`default_database`.`t1`
-           |INNER JOIN `default_catalog`.`default_database`.`t2` ON `t1`.`c` = `t2`.`c`"""
-          .stripMargin
+    assertEquals(
+      showCreateInnerJoinViewResult,
+      Lists.newArrayList(
+        Row.of(
+          s"""CREATE VIEW `default_catalog`.`default_database`.`innerJoinView` (
+             |  `a1`,
+             |  `b2`
+             |)
+             |AS SELECT `t1`.`a` AS `a1`, `t2`.`b` AS `b2`
+             |FROM `default_catalog`.`default_database`.`t1`
+             |INNER JOIN `default_catalog`.`default_database`.`t2` ON `t1`.`c` = `t2`.`c`
+             |""".stripMargin
+        )
       )
-    ))
+    )
   }
 
 }
 
 object CatalogViewITCase {
-  @Parameterized.Parameters(name = "{0}")
+  @Parameters(name = "{0}")
   def parameters(): java.util.Collection[Boolean] = {
     util.Arrays.asList(true, false)
   }
 }
-

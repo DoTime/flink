@@ -18,7 +18,6 @@
 
 package org.apache.flink.fs.s3.common;
 
-import org.apache.flink.api.common.time.Deadline;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.testutils.AllCallbackWrapper;
@@ -31,7 +30,7 @@ import org.apache.flink.runtime.testutils.CommonTestUtils;
 import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.test.junit5.MiniClusterExtension;
 
-import org.apache.flink.shaded.guava30.com.google.common.collect.Iterables;
+import org.apache.flink.shaded.guava32.com.google.common.collect.Iterables;
 
 import com.amazonaws.services.s3.model.S3ObjectSummary;
 import org.apache.commons.lang3.StringUtils;
@@ -39,10 +38,9 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import java.time.Duration;
 import java.util.List;
 
-import static org.apache.flink.shaded.guava30.com.google.common.base.Predicates.not;
+import static org.apache.flink.shaded.guava32.com.google.common.base.Predicates.not;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -110,7 +108,7 @@ public abstract class HAJobRunOnMinioS3StoreITCase extends AbstractHAJobRunITCas
     }
 
     @AfterAll
-    public static void unsetFileSystem() {
+    static void unsetFileSystem() {
         FileSystem.initialize(new Configuration(), null);
     }
 
@@ -130,9 +128,7 @@ public abstract class HAJobRunOnMinioS3StoreITCase extends AbstractHAJobRunITCas
                                             FileSystemJobResultStore
                                                     ::hasValidDirtyJobResultStoreEntryExtension);
                 },
-                Deadline.fromNow(Duration.ofSeconds(60)),
-                2000L,
-                "Wait for the JobResult being written to the JobResultStore.");
+                2000L);
 
         final S3ObjectSummary objRef = Iterables.getOnlyElement(getObjectsFromJobResultStore());
         assertThat(objRef.getKey())

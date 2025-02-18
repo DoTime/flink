@@ -29,9 +29,8 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.utils.DataTypeUtils;
 import org.apache.flink.util.Collector;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.assertj.core.data.Percentage;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
@@ -43,19 +42,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import static org.apache.flink.connector.testutils.formats.SchemaTestUtils.open;
+import static org.apache.flink.core.testutils.FlinkAssertions.anyCauseMatches;
 import static org.apache.flink.table.api.DataTypes.FIELD;
 import static org.apache.flink.table.api.DataTypes.FLOAT;
 import static org.apache.flink.table.api.DataTypes.INT;
 import static org.apache.flink.table.api.DataTypes.ROW;
 import static org.apache.flink.table.api.DataTypes.STRING;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests for {@link OggJsonSerializationSchema} and {@link OggJsonDeserializationSchema}. */
-public class OggJsonSerDeSchemaTest {
+class OggJsonSerDeSchemaTest {
 
     private static final DataType PHYSICAL_DATA_TYPE =
             ROW(
@@ -63,7 +63,6 @@ public class OggJsonSerDeSchemaTest {
                     FIELD("name", STRING()),
                     FIELD("description", STRING()),
                     FIELD("weight", FLOAT()));
-    @Rule public ExpectedException thrown = ExpectedException.none();
 
     private static List<String> readLines(String resource) throws IOException {
         final URL url = OggJsonSerDeSchemaTest.class.getClassLoader().getResource(resource);
@@ -73,17 +72,44 @@ public class OggJsonSerDeSchemaTest {
     }
 
     @Test
-    public void testSerializationAndDeserialization() throws Exception {
+    void testSerializationAndDeserialization() throws Exception {
         testSerializationDeserialization("ogg-data.txt");
     }
 
     @Test
-    public void testDeserializationWithMetadata() throws Exception {
+    void testDeserializationWithMetadata() throws Exception {
         testDeserializationWithMetadata("ogg-data.txt");
     }
 
     @Test
-    public void testTombstoneMessages() throws Exception {
+    void testIgnoreParseErrors() throws Exception {
+        List<String> lines = readLines("ogg-data.txt");
+        OggJsonDeserializationSchema deserializationSchema =
+                new OggJsonDeserializationSchema(
+                        PHYSICAL_DATA_TYPE,
+                        Collections.emptyList(),
+                        InternalTypeInfo.of(PHYSICAL_DATA_TYPE.getLogicalType()),
+                        true,
+                        TimestampFormat.ISO_8601);
+        open(deserializationSchema);
+
+        ThrowingExceptionCollector collector = new ThrowingExceptionCollector();
+        assertThatThrownBy(
+                        () -> {
+                            for (String line : lines) {
+                                deserializationSchema.deserialize(
+                                        line.getBytes(StandardCharsets.UTF_8), collector);
+                            }
+                        })
+                .isInstanceOf(RuntimeException.class)
+                .satisfies(
+                        anyCauseMatches(
+                                RuntimeException.class,
+                                "An error occurred while collecting data."));
+    }
+
+    @Test
+    void testTombstoneMessages() throws Exception {
         OggJsonDeserializationSchema deserializationSchema =
                 new OggJsonDeserializationSchema(
                         PHYSICAL_DATA_TYPE,
@@ -91,10 +117,11 @@ public class OggJsonSerDeSchemaTest {
                         InternalTypeInfo.of(PHYSICAL_DATA_TYPE.getLogicalType()),
                         false,
                         TimestampFormat.ISO_8601);
+        open(deserializationSchema);
         SimpleCollector collector = new SimpleCollector();
         deserializationSchema.deserialize(null, collector);
         deserializationSchema.deserialize(new byte[] {}, collector);
-        assertTrue(collector.list.isEmpty());
+        assertThat(collector.list).isEmpty();
     }
 
     public void testDeserializationWithMetadata(String resourceFile) throws Exception {
@@ -116,23 +143,28 @@ public class OggJsonSerDeSchemaTest {
                         InternalTypeInfo.of(producedDataTypes.getLogicalType()),
                         false,
                         TimestampFormat.ISO_8601);
+        open(deserializationSchema);
 
         final SimpleCollector collector = new SimpleCollector();
         deserializationSchema.deserialize(firstLine.getBytes(StandardCharsets.UTF_8), collector);
-        assertEquals(1, collector.list.size());
-
-        Consumer<RowData> consumer =
-                row -> {
-                    assertEquals(101, row.getInt(0));
-                    assertEquals("scooter", row.getString(1).toString());
-                    assertEquals("Small 2-wheel scooter", row.getString(2).toString());
-                    assertEquals(3.140000104904175, row.getFloat(3), 1e-15);
-                    assertEquals("OGG.TBL_TEST", row.getString(4).toString());
-                    assertEquals("id", row.getArray(5).getString(0).toString());
-                    assertEquals(1589377175766L, row.getTimestamp(6, 6).getMillisecond());
-                    assertEquals(1589384406000L, row.getTimestamp(7, 6).getMillisecond());
-                };
-        consumer.accept(collector.list.get(0));
+        assertThat(collector.list).hasSize(1);
+        assertThat(collector.list.get(0))
+                .satisfies(
+                        row -> {
+                            assertThat(row.getInt(0)).isEqualTo(101);
+                            assertThat(row.getString(1).toString()).isEqualTo("scooter");
+                            assertThat(row.getString(2).toString())
+                                    .isEqualTo("Small 2-wheel scooter");
+                            assertThat(row.getFloat(3))
+                                    .isCloseTo(
+                                            3.140000104904175f, Percentage.withPercentage(1e-15));
+                            assertThat(row.getString(4).toString()).isEqualTo("OGG.TBL_TEST");
+                            assertThat(row.getArray(5).getString(0).toString()).isEqualTo("id");
+                            assertThat(row.getTimestamp(6, 6).getMillisecond())
+                                    .isEqualTo(1589377175766L);
+                            assertThat(row.getTimestamp(7, 6).getMillisecond())
+                                    .isEqualTo(1589384406000L);
+                        });
     }
 
     private void testSerializationDeserialization(String resourceFile) throws Exception {
@@ -144,6 +176,7 @@ public class OggJsonSerDeSchemaTest {
                         InternalTypeInfo.of(PHYSICAL_DATA_TYPE.getLogicalType()),
                         false,
                         TimestampFormat.ISO_8601);
+        open(deserializationSchema);
 
         SimpleCollector collector = new SimpleCollector();
         for (String line : lines) {
@@ -204,7 +237,7 @@ public class OggJsonSerDeSchemaTest {
                         "-D(111,scooter,Big 2-wheel scooter ,5.17)");
         List<String> actual =
                 collector.list.stream().map(Object::toString).collect(Collectors.toList());
-        assertEquals(expected, actual);
+        assertThat(expected).containsExactlyElementsOf(actual);
 
         OggJsonSerializationSchema serializationSchema =
                 new OggJsonSerializationSchema(
@@ -212,9 +245,10 @@ public class OggJsonSerDeSchemaTest {
                         TimestampFormat.SQL,
                         JsonFormatOptions.MapNullKeyMode.LITERAL,
                         "null",
-                        true);
+                        true,
+                        false);
 
-        serializationSchema.open(null);
+        open(serializationSchema);
         actual = new ArrayList<>();
         for (RowData rowData : collector.list) {
             actual.add(new String(serializationSchema.serialize(rowData), StandardCharsets.UTF_8));
@@ -242,7 +276,7 @@ public class OggJsonSerDeSchemaTest {
                         "{\"before\":{\"id\":111,\"name\":\"scooter\",\"description\":\"Big 2-wheel scooter \",\"weight\":5.18},\"after\":null,\"op_type\":\"D\"}",
                         "{\"before\":null,\"after\":{\"id\":111,\"name\":\"scooter\",\"description\":\"Big 2-wheel scooter \",\"weight\":5.17},\"op_type\":\"I\"}",
                         "{\"before\":{\"id\":111,\"name\":\"scooter\",\"description\":\"Big 2-wheel scooter \",\"weight\":5.17},\"after\":null,\"op_type\":\"D\"}");
-        assertEquals(expected, actual);
+        assertThat(expected).containsExactlyElementsOf(actual);
     }
 
     private static class SimpleCollector implements Collector<RowData> {
@@ -252,6 +286,19 @@ public class OggJsonSerDeSchemaTest {
         @Override
         public void collect(RowData record) {
             list.add(record);
+        }
+
+        @Override
+        public void close() {
+            // do nothing
+        }
+    }
+
+    private static class ThrowingExceptionCollector implements Collector<RowData> {
+
+        @Override
+        public void collect(RowData record) {
+            throw new RuntimeException("An error occurred while collecting data.");
         }
 
         @Override
